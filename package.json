@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "server": "node src/server/server.ts",
+    "start": "node src/server/server.ts",
     "cli": "node src/server/cli.ts"
   },
   "dependencies": {

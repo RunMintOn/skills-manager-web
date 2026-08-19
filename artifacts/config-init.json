@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "command": "config init",
+  "configPath": "/tmp/skills-manager-fixture-config.json",
+  "config": {
+    "schemaVersion": 1,
+    "vault": {
+      "path": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault",
+      "host": "wsl"
+    },
+    "agents": [
+      {
+        "id": "fixture-agent",
+        "name": "Fixture Agent",
+        "path": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default",
+        "host": "wsl"
+      }
+    ],
+    "selectedAgentId": "fixture-agent"
+  },
+  "execution": "not-run"
+}

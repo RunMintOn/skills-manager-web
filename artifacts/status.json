@@ -1,0 +1,647 @@
+{
+  "schemaVersion": 1,
+  "tool": "skill-manager-web",
+  "execution": "preview-only",
+  "config": {
+    "path": "/tmp/skills-manager-fixture-config.json",
+    "exists": true,
+    "selectedAgentId": "fixture-agent",
+    "agentCount": 1
+  },
+  "vault": {
+    "path": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault",
+    "host": "wsl",
+    "supported": true,
+    "rootExists": true,
+    "skills": [
+      {
+        "id": "duplicate-skill",
+        "relativePath": "duplicates/first",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/duplicates/first",
+        "collection": "duplicates",
+        "directoryName": "first",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: duplicate-skill\ndescription: First duplicate source.",
+          "fields": {
+            "name": "duplicate-skill",
+            "description": "First duplicate source."
+          },
+          "name": "duplicate-skill",
+          "description": "First duplicate source.",
+          "errors": []
+        },
+        "name": "duplicate-skill",
+        "description": "First duplicate source.",
+        "validity": "invalid",
+        "issues": [
+          {
+            "code": "name-mismatch",
+            "severity": "error",
+            "message": "Directory name \"first\" must exactly equal frontmatter name \"duplicate-skill\"."
+          },
+          {
+            "code": "duplicate-id",
+            "severity": "error",
+            "message": "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+          }
+        ],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/duplicates/first"
+      },
+      {
+        "id": "duplicate-skill",
+        "relativePath": "duplicates/second",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/duplicates/second",
+        "collection": "duplicates",
+        "directoryName": "second",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: duplicate-skill\ndescription: Second duplicate source.",
+          "fields": {
+            "name": "duplicate-skill",
+            "description": "Second duplicate source."
+          },
+          "name": "duplicate-skill",
+          "description": "Second duplicate source.",
+          "errors": []
+        },
+        "name": "duplicate-skill",
+        "description": "Second duplicate source.",
+        "validity": "invalid",
+        "issues": [
+          {
+            "code": "name-mismatch",
+            "severity": "error",
+            "message": "Directory name \"second\" must exactly equal frontmatter name \"duplicate-skill\"."
+          },
+          {
+            "code": "duplicate-id",
+            "severity": "error",
+            "message": "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+          }
+        ],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/duplicates/second"
+      },
+      {
+        "id": "code-review",
+        "relativePath": "engineering/code-review",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/code-review",
+        "collection": "engineering",
+        "directoryName": "code-review",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: code-review\ndescription: Review code changes and report risks.\ntags: engineering,review",
+          "fields": {
+            "name": "code-review",
+            "description": "Review code changes and report risks.",
+            "tags": "engineering,review"
+          },
+          "name": "code-review",
+          "description": "Review code changes and report risks.",
+          "errors": []
+        },
+        "name": "code-review",
+        "description": "Review code changes and report risks.",
+        "validity": "valid",
+        "issues": [],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/code-review"
+      },
+      {
+        "id": "lint-helper",
+        "relativePath": "engineering/tools/lint-helper",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/tools/lint-helper",
+        "collection": "engineering",
+        "directoryName": "lint-helper",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: lint-helper\ndescription: Run consistent lint checks.",
+          "fields": {
+            "name": "lint-helper",
+            "description": "Run consistent lint checks."
+          },
+          "name": "lint-helper",
+          "description": "Run consistent lint checks.",
+          "errors": []
+        },
+        "name": "lint-helper",
+        "description": "Run consistent lint checks.",
+        "validity": "valid",
+        "issues": [],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/tools/lint-helper"
+      },
+      {
+        "id": "invalid/missing-frontmatter",
+        "relativePath": "invalid/missing-frontmatter",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/invalid/missing-frontmatter",
+        "collection": "invalid",
+        "directoryName": "missing-frontmatter",
+        "frontmatter": {
+          "present": false,
+          "raw": "",
+          "fields": {},
+          "errors": [
+            "frontmatter-missing"
+          ]
+        },
+        "validity": "invalid",
+        "issues": [
+          {
+            "code": "frontmatter-missing",
+            "severity": "error",
+            "message": "SKILL.md has no YAML frontmatter block."
+          },
+          {
+            "code": "frontmatter-malformed",
+            "severity": "error",
+            "message": "frontmatter-missing"
+          },
+          {
+            "code": "name-missing",
+            "severity": "error",
+            "message": "SKILL.md frontmatter must contain a non-empty name."
+          }
+        ],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/invalid/missing-frontmatter"
+      },
+      {
+        "id": "declared-other",
+        "relativePath": "operations/broken-demo",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/operations/broken-demo",
+        "collection": "operations",
+        "directoryName": "broken-demo",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: declared-other\ndescription: This directory intentionally fails exact name validation.",
+          "fields": {
+            "name": "declared-other",
+            "description": "This directory intentionally fails exact name validation."
+          },
+          "name": "declared-other",
+          "description": "This directory intentionally fails exact name validation.",
+          "errors": []
+        },
+        "name": "declared-other",
+        "description": "This directory intentionally fails exact name validation.",
+        "validity": "invalid",
+        "issues": [
+          {
+            "code": "name-mismatch",
+            "severity": "error",
+            "message": "Directory name \"broken-demo\" must exactly equal frontmatter name \"declared-other\"."
+          }
+        ],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/operations/broken-demo"
+      },
+      {
+        "id": "unicode-helper",
+        "relativePath": "unicode-helper",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/unicode-helper",
+        "collection": "Loose Skills",
+        "directoryName": "unicode-helper",
+        "frontmatter": {
+          "present": true,
+          "raw": "name: unicode-helper\ndescription: 处理 Unicode、中文和 emoji 🚀。",
+          "fields": {
+            "name": "unicode-helper",
+            "description": "处理 Unicode、中文和 emoji 🚀。"
+          },
+          "name": "unicode-helper",
+          "description": "处理 Unicode、中文和 emoji 🚀。",
+          "errors": []
+        },
+        "name": "unicode-helper",
+        "description": "处理 Unicode、中文和 emoji 🚀。",
+        "validity": "valid",
+        "issues": [],
+        "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/unicode-helper"
+      }
+    ],
+    "collections": [
+      {
+        "id": "Loose Skills",
+        "label": "Loose Skills",
+        "skillIds": [
+          "unicode-helper"
+        ],
+        "validCount": 1,
+        "invalidCount": 0
+      },
+      {
+        "id": "duplicates",
+        "label": "duplicates",
+        "skillIds": [
+          "duplicate-skill",
+          "duplicate-skill"
+        ],
+        "validCount": 0,
+        "invalidCount": 2
+      },
+      {
+        "id": "engineering",
+        "label": "engineering",
+        "skillIds": [
+          "code-review",
+          "lint-helper"
+        ],
+        "validCount": 2,
+        "invalidCount": 0
+      },
+      {
+        "id": "invalid",
+        "label": "invalid",
+        "skillIds": [
+          "invalid/missing-frontmatter"
+        ],
+        "validCount": 0,
+        "invalidCount": 1
+      },
+      {
+        "id": "operations",
+        "label": "operations",
+        "skillIds": [
+          "declared-other"
+        ],
+        "validCount": 0,
+        "invalidCount": 1
+      }
+    ],
+    "duplicateIds": [
+      "duplicate-skill"
+    ],
+    "issues": [
+      {
+        "code": "name-mismatch",
+        "severity": "error",
+        "relativePath": "duplicates/first",
+        "skillId": "duplicate-skill",
+        "message": "Directory name \"first\" must exactly equal frontmatter name \"duplicate-skill\"."
+      },
+      {
+        "code": "duplicate-id",
+        "severity": "error",
+        "relativePath": "duplicates/first",
+        "skillId": "duplicate-skill",
+        "message": "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+      },
+      {
+        "code": "name-mismatch",
+        "severity": "error",
+        "relativePath": "duplicates/second",
+        "skillId": "duplicate-skill",
+        "message": "Directory name \"second\" must exactly equal frontmatter name \"duplicate-skill\"."
+      },
+      {
+        "code": "duplicate-id",
+        "severity": "error",
+        "relativePath": "duplicates/second",
+        "skillId": "duplicate-skill",
+        "message": "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+      },
+      {
+        "code": "frontmatter-missing",
+        "severity": "error",
+        "relativePath": "invalid/missing-frontmatter",
+        "skillId": "invalid/missing-frontmatter",
+        "message": "SKILL.md has no YAML frontmatter block."
+      },
+      {
+        "code": "frontmatter-malformed",
+        "severity": "error",
+        "relativePath": "invalid/missing-frontmatter",
+        "skillId": "invalid/missing-frontmatter",
+        "message": "frontmatter-missing"
+      },
+      {
+        "code": "name-missing",
+        "severity": "error",
+        "relativePath": "invalid/missing-frontmatter",
+        "skillId": "invalid/missing-frontmatter",
+        "message": "SKILL.md frontmatter must contain a non-empty name."
+      },
+      {
+        "code": "name-mismatch",
+        "severity": "error",
+        "relativePath": "operations/broken-demo",
+        "skillId": "declared-other",
+        "message": "Directory name \"broken-demo\" must exactly equal frontmatter name \"declared-other\"."
+      }
+    ],
+    "summary": {
+      "total": 7,
+      "valid": 3,
+      "invalid": 4,
+      "collections": 5,
+      "duplicateIds": 1,
+      "issueCount": 8
+    },
+    "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault"
+  },
+  "agents": [
+    {
+      "id": "fixture-agent",
+      "name": "Fixture Agent",
+      "path": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default",
+      "host": "wsl",
+      "supported": true,
+      "rootExists": true,
+      "entries": [
+        {
+          "name": "broken-link",
+          "relativePath": "broken-link",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/broken-link",
+          "kind": "broken-link",
+          "issues": [
+            {
+              "code": "broken-link",
+              "severity": "error",
+              "message": "Link target does not exist or cannot be resolved."
+            }
+          ]
+        },
+        {
+          "name": "code-review",
+          "relativePath": "code-review",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/code-review",
+          "kind": "repo-link",
+          "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/code-review",
+          "targetVaultRelativePath": "engineering/code-review",
+          "skillId": "code-review",
+          "issues": []
+        },
+        {
+          "name": "external-link",
+          "relativePath": "external-link",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/external-link",
+          "kind": "external-link",
+          "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/external/external-skill",
+          "issues": [
+            {
+              "code": "external-link",
+              "severity": "warning",
+              "message": "Link points outside the configured Vault."
+            }
+          ]
+        },
+        {
+          "name": "invalid-file.txt",
+          "relativePath": "invalid-file.txt",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/invalid-file.txt",
+          "kind": "invalid",
+          "issues": [
+            {
+              "code": "invalid-entry",
+              "severity": "error",
+              "message": "Agent entry is neither a directory nor a link."
+            }
+          ]
+        },
+        {
+          "name": "invalid-skill",
+          "relativePath": "invalid-skill",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/invalid-skill",
+          "kind": "invalid",
+          "frontmatter": {
+            "present": false,
+            "raw": "",
+            "fields": {},
+            "errors": [
+              "frontmatter-missing"
+            ]
+          },
+          "issues": [
+            {
+              "code": "invalid-skill-metadata",
+              "severity": "error",
+              "message": "Agent directory contains invalid SKILL.md frontmatter."
+            }
+          ]
+        },
+        {
+          "name": "lint-helper-copy",
+          "relativePath": "lint-helper-copy",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/lint-helper-copy",
+          "kind": "repo-copy",
+          "skillId": "lint-helper",
+          "targetVaultRelativePath": "engineering/tools/lint-helper",
+          "frontmatter": {
+            "present": true,
+            "raw": "name: lint-helper\ndescription: A copied version of the Vault skill.",
+            "fields": {
+              "name": "lint-helper",
+              "description": "A copied version of the Vault skill."
+            },
+            "name": "lint-helper",
+            "description": "A copied version of the Vault skill.",
+            "errors": []
+          },
+          "issues": [
+            {
+              "code": "local-directory",
+              "severity": "warning",
+              "message": "A real directory contains metadata for a Vault Skill but is not a link."
+            }
+          ]
+        },
+        {
+          "name": "local-notes",
+          "relativePath": "local-notes",
+          "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/local-notes",
+          "kind": "local-dir",
+          "issues": [
+            {
+              "code": "local-directory",
+              "severity": "warning",
+              "message": "A real local directory is not a Vault link."
+            }
+          ]
+        }
+      ],
+      "issues": [],
+      "summary": {
+        "total": 7,
+        "repoLinks": 1,
+        "repoCopies": 1,
+        "localDirs": 1,
+        "externalLinks": 1,
+        "brokenLinks": 1,
+        "invalid": 2,
+        "issueCount": 6
+      },
+      "canonicalPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default"
+    }
+  ],
+  "selectedAgentId": "fixture-agent",
+  "comparison": {
+    "agentId": "fixture-agent",
+    "rows": [
+      {
+        "skillId": "duplicate-skill",
+        "skillPath": "duplicates/first",
+        "collection": "duplicates",
+        "state": "invalid",
+        "agentEntryPaths": [],
+        "risks": [
+          "Directory name \"first\" must exactly equal frontmatter name \"duplicate-skill\".",
+          "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+        ]
+      },
+      {
+        "skillId": "duplicate-skill",
+        "skillPath": "duplicates/second",
+        "collection": "duplicates",
+        "state": "invalid",
+        "agentEntryPaths": [],
+        "risks": [
+          "Directory name \"second\" must exactly equal frontmatter name \"duplicate-skill\".",
+          "Skill ID \"duplicate-skill\" is declared by 2 Vault directories."
+        ]
+      },
+      {
+        "skillId": "code-review",
+        "skillPath": "engineering/code-review",
+        "collection": "engineering",
+        "state": "linked",
+        "agentEntryPaths": [
+          "code-review"
+        ],
+        "risks": []
+      },
+      {
+        "skillId": "lint-helper",
+        "skillPath": "engineering/tools/lint-helper",
+        "collection": "engineering",
+        "state": "local-dir",
+        "agentEntryPaths": [
+          "lint-helper-copy"
+        ],
+        "risks": []
+      },
+      {
+        "skillId": "invalid/missing-frontmatter",
+        "skillPath": "invalid/missing-frontmatter",
+        "collection": "invalid",
+        "state": "invalid",
+        "agentEntryPaths": [],
+        "risks": [
+          "SKILL.md has no YAML frontmatter block.",
+          "frontmatter-missing",
+          "SKILL.md frontmatter must contain a non-empty name."
+        ]
+      },
+      {
+        "skillId": "declared-other",
+        "skillPath": "operations/broken-demo",
+        "collection": "operations",
+        "state": "invalid",
+        "agentEntryPaths": [],
+        "risks": [
+          "Directory name \"broken-demo\" must exactly equal frontmatter name \"declared-other\"."
+        ]
+      },
+      {
+        "skillId": "unicode-helper",
+        "skillPath": "unicode-helper",
+        "collection": "Loose Skills",
+        "state": "pending",
+        "agentEntryPaths": [],
+        "risks": []
+      }
+    ],
+    "actualOnly": [
+      {
+        "name": "broken-link",
+        "relativePath": "broken-link",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/broken-link",
+        "kind": "broken-link",
+        "issues": [
+          {
+            "code": "broken-link",
+            "severity": "error",
+            "message": "Link target does not exist or cannot be resolved."
+          }
+        ]
+      },
+      {
+        "name": "external-link",
+        "relativePath": "external-link",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/external-link",
+        "kind": "external-link",
+        "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/external/external-skill",
+        "issues": [
+          {
+            "code": "external-link",
+            "severity": "warning",
+            "message": "Link points outside the configured Vault."
+          }
+        ]
+      },
+      {
+        "name": "invalid-file.txt",
+        "relativePath": "invalid-file.txt",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/invalid-file.txt",
+        "kind": "invalid",
+        "issues": [
+          {
+            "code": "invalid-entry",
+            "severity": "error",
+            "message": "Agent entry is neither a directory nor a link."
+          }
+        ]
+      },
+      {
+        "name": "invalid-skill",
+        "relativePath": "invalid-skill",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/invalid-skill",
+        "kind": "invalid",
+        "frontmatter": {
+          "present": false,
+          "raw": "",
+          "fields": {},
+          "errors": [
+            "frontmatter-missing"
+          ]
+        },
+        "issues": [
+          {
+            "code": "invalid-skill-metadata",
+            "severity": "error",
+            "message": "Agent directory contains invalid SKILL.md frontmatter."
+          }
+        ]
+      },
+      {
+        "name": "local-notes",
+        "relativePath": "local-notes",
+        "absolutePath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/local-notes",
+        "kind": "local-dir",
+        "issues": [
+          {
+            "code": "local-directory",
+            "severity": "warning",
+            "message": "A real local directory is not a Vault link."
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "linked": 1,
+      "pending": 1,
+      "local-dir": 1,
+      "external-link": 0,
+      "broken-link": 0,
+      "invalid": 4
+    },
+    "actualSummary": {
+      "local-dir": 1,
+      "external-link": 1,
+      "broken-link": 1,
+      "invalid": 2
+    },
+    "issueCount": 14
+  },
+  "safety": {
+    "vault": "read-only",
+    "agents": "read-only-scan",
+    "sync": "preview-only"
+  }
+}

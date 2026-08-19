@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "mode": "preview-only",
+  "agentId": "fixture-agent",
+  "selectedSkillIds": [
+    "code-review",
+    "lint-helper",
+    "unicode-helper"
+  ],
+  "unknownSkillIds": [],
+  "operations": [
+    {
+      "id": "fixture-agent:code-review",
+      "skillId": "code-review",
+      "skillPath": "engineering/code-review",
+      "agentId": "fixture-agent",
+      "action": "already-linked",
+      "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/engineering/code-review",
+      "risks": [],
+      "execution": "not-run"
+    },
+    {
+      "id": "fixture-agent:lint-helper",
+      "skillId": "lint-helper",
+      "skillPath": "engineering/tools/lint-helper",
+      "agentId": "fixture-agent",
+      "action": "blocked",
+      "risks": [
+        "Agent state is local-dir; destination is not safe to replace."
+      ],
+      "execution": "not-run"
+    },
+    {
+      "id": "fixture-agent:unicode-helper",
+      "skillId": "unicode-helper",
+      "skillPath": "unicode-helper",
+      "agentId": "fixture-agent",
+      "action": "create-link",
+      "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/unicode-helper",
+      "linkPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/unicode-helper",
+      "link": {
+        "kind": "wsl-command",
+        "host": "wsl",
+        "executable": "wsl.exe",
+        "args": [
+          "--exec",
+          "ln",
+          "-s",
+          "--",
+          "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/unicode-helper",
+          "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/unicode-helper"
+        ],
+        "shell": false,
+        "targetPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/vault/unicode-helper",
+        "linkPath": "/home/lee/11MyProjrct/44-skills-manager-web/fixtures/agents/default/unicode-helper",
+        "directoryOnly": true
+      },
+      "risks": [],
+      "execution": "not-run"
+    }
+  ],
+  "safety": {
+    "filesystemWrites": "disabled",
+    "shell": "never",
+    "windowsExecution": "manual-only",
+    "note": "This slice only produces a plan; no operation was executed."
+  }
+}
