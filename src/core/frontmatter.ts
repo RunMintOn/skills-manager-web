@@ -1,4 +1,4 @@
-import type { Frontmatter } from "./types.js"
+import type { Frontmatter } from "./types.ts"
 
 function unquote(value: string): string {
   const trimmed = value.trim()

@@ -1,4 +1,4 @@
-import type { AgentEntry, AgentScan, ComparisonResult, ComparisonRow, ComparisonState, VaultScan } from "./types.js"
+import type { AgentEntry, AgentScan, ComparisonResult, ComparisonRow, ComparisonState, VaultScan } from "./types.ts"
 const STATES: ComparisonState[] = ["linked", "pending", "local-dir", "external-link", "broken-link", "invalid"]
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 function stateOf(entry: AgentEntry): ComparisonState { return entry.kind === "repo-link" ? "linked" : entry.kind === "repo-copy" ? "local-dir" : entry.kind }

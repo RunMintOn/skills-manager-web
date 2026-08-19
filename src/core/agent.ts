@@ -1,9 +1,9 @@
 import { access, constants } from "node:fs"
 import { lstat, readdir, readFile } from "node:fs/promises"
-import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.js"
-import { parseFrontmatter } from "./frontmatter.js"
-import { findVaultSkillById } from "./vault.js"
-import type { AgentConfig, AgentEntry, AgentEntryIssue, AgentScan, Frontmatter, VaultScan, VaultSkill } from "./types.js"
+import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.ts"
+import { parseFrontmatter } from "./frontmatter.ts"
+import { findVaultSkillById } from "./vault.ts"
+import type { AgentConfig, AgentEntry, AgentEntryIssue, AgentScan, Frontmatter, VaultScan, VaultSkill } from "./types.ts"
 
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 const exists = async (path: string) => new Promise<boolean>((resolve) => access(path, constants.F_OK, (error) => resolve(!error)))

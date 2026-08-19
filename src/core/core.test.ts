@@ -14,8 +14,8 @@ import {
   scanVault,
   toggleSelection,
   validateConfig,
-} from "./index.js"
-import { fixturePath } from "./config.js"
+} from "./index.ts"
+import { fixturePath } from "./config.ts"
 
 describe("frontmatter and safe path boundaries", () => {
   it("parses scalar fields without evaluating YAML", () => {

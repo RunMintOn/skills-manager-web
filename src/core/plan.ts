@@ -1,8 +1,8 @@
-import { appendSafeChild, getHostPathAdapter } from "./host.js"
-import { createLinkOperation } from "./link-plan.js"
-import { buildComparison } from "./compare.js"
-import { findVaultSkillById } from "./vault.js"
-import type { AgentScan, ComparisonResult, LinkOperationPlan, PlanAction, SkillManagerConfig, SyncPlan, SyncPlanOperation, VaultScan } from "./types.js"
+import { appendSafeChild, getHostPathAdapter } from "./host.ts"
+import { createLinkOperation } from "./link-plan.ts"
+import { buildComparison } from "./compare.ts"
+import { findVaultSkillById } from "./vault.ts"
+import type { AgentScan, ComparisonResult, LinkOperationPlan, PlanAction, SkillManagerConfig, SyncPlan, SyncPlanOperation, VaultScan } from "./types.ts"
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 function blocked(id: string, skillId: string, agentId: string, risks: string[], skillPath?: string): SyncPlanOperation { return { id, skillId, skillPath, agentId, action: "blocked", risks, execution: "not-run" } }
 export function buildSyncPlan(input: { config: SkillManagerConfig; vault: VaultScan; agent: AgentScan; comparison: ComparisonResult; selectedSkillIds: string[] }): SyncPlan {

@@ -2,7 +2,7 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { constants } from "node:fs"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
-import type { AgentConfig, HostKind, LoadedConfig, SkillManagerConfig } from "./types.js"
+import type { AgentConfig, HostKind, LoadedConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
 export const DEFAULT_CONFIG_PATH = nodePath.join(PROJECT_ROOT, "data", "config.json")
@@ -42,4 +42,5 @@ export async function configExists(path = DEFAULT_CONFIG_PATH): Promise<boolean>
 export async function readConfig(configPath = DEFAULT_CONFIG_PATH): Promise<LoadedConfig> { const absolute = nodePath.resolve(configPath); const raw = JSON.parse(await readFile(absolute, "utf8")) as unknown; return resolveConfig(validateConfig(raw), absolute, true) }
 export async function readConfigOrFixture(configPath = DEFAULT_CONFIG_PATH): Promise<LoadedConfig> { return await configExists(configPath) ? readConfig(configPath) : resolveConfig(createFixtureConfig(), configPath, false) }
 export async function writeConfig(configPath: string, config: SkillManagerConfig): Promise<LoadedConfig> { const absolute = nodePath.resolve(configPath); const validated = validateConfig(config); await mkdir(nodePath.dirname(absolute), { recursive: true }); const temp = `${absolute}.tmp-${process.pid}`; await writeFile(temp, `${JSON.stringify(validated, null, 2)}\n`, "utf8"); await rename(temp, absolute); return resolveConfig(validated, absolute, true) }
+export async function initConfig(configPath: string, force = false): Promise<LoadedConfig> { const absolute = nodePath.resolve(configPath); if (!force && await configExists(absolute)) throw new Error(`config already exists: ${absolute}; use --force to replace it`); return writeConfig(absolute, createFixtureConfig()) }
 export function configForWrite(config: LoadedConfig): SkillManagerConfig { return { schemaVersion: 1, vault: { ...config.vault }, agents: config.agents.map((agent) => ({ ...agent })), ...(config.selectedAgentId ? { selectedAgentId: config.selectedAgentId } : {}) } }

@@ -1,6 +1,6 @@
 import nodePath from "node:path"
 import { realpath } from "node:fs/promises"
-import type { HostKind } from "./types.js"
+import type { HostKind } from "./types.ts"
 
 export interface HostPathAdapter {
   host: HostKind

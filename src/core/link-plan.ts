@@ -1,4 +1,4 @@
-import type { HostKind, LinkOperationPlan } from "./types.js"
+import type { HostKind, LinkOperationPlan } from "./types.ts"
 
 export function isSafeWslPath(value: string): boolean {
   return value.startsWith("/") && !value.includes("\0") && !value.includes("\\") && !value.split("/").some((part) => part === "." || part === "..")

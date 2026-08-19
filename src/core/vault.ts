@@ -1,8 +1,8 @@
 import { access, constants } from "node:fs"
 import { lstat, readFile, readdir } from "node:fs/promises"
-import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.js"
-import { parseFrontmatter } from "./frontmatter.js"
-import type { Frontmatter, SkillIssue, VaultCollection, VaultConfig, VaultScan, VaultSkill, VaultValidationIssue } from "./types.js"
+import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.ts"
+import { parseFrontmatter } from "./frontmatter.ts"
+import type { Frontmatter, SkillIssue, VaultCollection, VaultConfig, VaultScan, VaultSkill, VaultValidationIssue } from "./types.ts"
 
 const SKILL_FILE = "SKILL.md"
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
