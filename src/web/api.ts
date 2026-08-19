@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentScan, ComparisonResult, HostKind, SkillManagerConfig, VaultScan } from "../core/types.ts"
+import type { AgentConfig, AgentScan, ComparisonResult, HostKind, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
 
 const API_PORT = import.meta.env.VITE_API_PORT || "8787"
 const API_ROOT = `http://${window.location.hostname || "127.0.0.1"}:${API_PORT}/api`
@@ -13,7 +13,7 @@ export interface InitResponse {
 }
 export interface ConfigResponse { schemaVersion: 1; configPath: string; exists: boolean; config: SkillManagerConfig }
 export interface AgentResponse { schemaVersion: 1; agent: AgentScan; comparison: ComparisonResult; execution: "read-only" }
-export interface PlanResponse { schemaVersion: 1; plan: unknown; execution: "not-run" }
+export interface PlanResponse { schemaVersion: 1; plan: SyncPlan; execution: "not-run" }
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } })
   const body = await response.json() as T & { error?: { message?: string } }
