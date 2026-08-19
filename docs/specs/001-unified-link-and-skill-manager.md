@@ -40,7 +40,7 @@
 
 运行环境为 WSL 原生 Node 服务：直接处理 WSL 路径与 WSL symlink；Windows Junction 经系统互操作调用 Windows 侧命令完成（本机已验证 powershell.exe/cmd.exe 可用）。Windows 浏览器通过 WSL2 localhost 转发访问界面，无需打包。源码位于 WSL 原生 /home/lee/11MyProjrct/44-skills-manager-web，开发与运行使用同一份工作树，依赖只在 WSL 侧安装一份。
 
-第一阶段交付真实的通用链接工作台，并保留技能管理的真实扫描、比较和同步预览。技能批量同步的实际执行复用同一链接服务，按后续切片接入。
+当前交付包含真实的通用链接工作台、技能管理的真实扫描/比较，以及经过确认的 Skill 链接创建。技能批量同步复用同一链接服务，并在执行后刷新 Agent 状态。
 
 ## User Stories
 

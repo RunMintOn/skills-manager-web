@@ -20,10 +20,12 @@ export type ComparisonState =
 
 export interface VaultConfig { path: string; host: HostKind }
 export interface AgentConfig { id: string; name: string; host: HostKind; path: string }
+export interface CommonPath { id: string; name: string; host: HostKind; path: string }
 export interface SkillManagerConfig {
   schemaVersion: 1
   vault: VaultConfig
   agents: AgentConfig[]
+  commonPaths?: CommonPath[]
   selectedAgentId?: string
 }
 export interface LoadedConfig extends SkillManagerConfig { configPath: string; exists: boolean }
@@ -164,18 +166,96 @@ export interface WslCommandOperation {
   shell: false
   targetPath: string
   linkPath: string
-  directoryOnly: true
+  directoryOnly: boolean
 }
 export interface WindowsJunctionOperation {
   kind: "windows-junction"
   host: "windows"
-  api: "fs.promises.symlink"
+  api: "fs.promises.symlink" | "powershell.exe"
   fsArgs: [targetPath: string, linkPath: string, type: "junction"]
   targetPath: string
   linkPath: string
   directoryOnly: true
 }
-export type LinkOperationPlan = WslCommandOperation | WindowsJunctionOperation
+export interface WindowsSymlinkOperation {
+  kind: "windows-symlink"
+  host: "windows"
+  api: "fs.promises.symlink" | "powershell.exe"
+  fsArgs: [targetPath: string, linkPath: string, type: "file" | "dir"]
+  targetPath: string
+  linkPath: string
+  directoryOnly: boolean
+}
+export type LinkOperationPlan = WslCommandOperation | WindowsJunctionOperation | WindowsSymlinkOperation
+
+export type LinkTargetKind = "file" | "directory"
+export type LinkEntryKind = "file" | "directory" | "wsl-symlink" | "windows-symlink" | "windows-junction" | "unsupported-link" | "other"
+export type LinkTargetStatus = "not-applicable" | "exists" | "broken"
+export type LinkStrategy = "wsl-symlink" | "wsl-to-windows-symlink" | "windows-to-wsl-symlink" | "windows-junction" | "windows-symlink"
+
+export interface LinkSpec {
+  targetHost: HostKind
+  targetPath: string
+  linkHost: HostKind
+  linkPath: string
+}
+
+export interface LinkPreflight {
+  schemaVersion: 1
+  spec: LinkSpec
+  ready: boolean
+  strategy?: LinkStrategy
+  target: { path: string; exists: boolean; kind?: LinkTargetKind; error?: string }
+  link: { path: string; exists: boolean; kind?: LinkEntryKind; targetPath?: string; error?: string }
+  parent: { path: string; exists: boolean; directory: boolean; error?: string }
+  operation?: LinkOperationPlan
+  risks: string[]
+}
+
+export interface LinkExecutionResult {
+  schemaVersion: 1
+  attempted: boolean
+  success: boolean
+  spec: LinkSpec
+  strategy?: LinkStrategy
+  message: string
+  error?: string
+}
+
+export interface LinkDeletePreflight {
+  schemaVersion: 1
+  host: HostKind
+  path: string
+  ready: boolean
+  kind?: LinkEntryKind
+  targetPath?: string
+  targetStatus: "exists" | "broken" | "not-applicable"
+  risks: string[]
+}
+
+export interface LinkEntry {
+  name: string
+  relativePath: string
+  absolutePath: string
+  kind: LinkEntryKind
+  targetPath?: string
+  rawTarget?: string
+  targetStatus: LinkTargetStatus
+  canDelete: boolean
+}
+
+export interface LinkScan {
+  schemaVersion: 1
+  path: string
+  host: HostKind
+  recursive: boolean
+  supported: boolean
+  rootExists: boolean
+  rootIsDirectory: boolean
+  entries: LinkEntry[]
+  issues: string[]
+}
+
 export type PlanAction = "create-link" | "already-linked" | "blocked"
 export interface SyncPlanOperation {
   id: string
@@ -187,19 +267,19 @@ export interface SyncPlanOperation {
   linkPath?: string
   link?: LinkOperationPlan
   risks: string[]
-  execution: "not-run"
+  execution: "not-run" | "completed" | "failed" | "skipped"
 }
 export interface SyncPlan {
   schemaVersion: 1
-  mode: "preview-only"
+  mode: "preview-only" | "execution"
   agentId: string
   selectedSkillIds: string[]
   unknownSkillIds: string[]
   operations: SyncPlanOperation[]
   safety: {
-    filesystemWrites: "disabled"
+    filesystemWrites: "disabled" | "enabled"
     shell: "never"
-    windowsExecution: "manual-only"
+    windowsExecution: "manual-only" | "automatic"
     note: string
   }
 }

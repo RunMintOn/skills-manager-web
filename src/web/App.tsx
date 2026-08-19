@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react"
 import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultSkill, VaultScan } from "../core/types.ts"
 import { api, type InitResponse } from "./api"
+import { LinksWorkbench } from "./LinksWorkbench"
 
 type TopTab = "skills" | "links"
 type View = "repository" | "compare" | "actual"
@@ -10,18 +11,35 @@ const stateLabels: Record<string, string> = { linked: "已链接", pending: "待
 const kindLabels: Record<string, string> = { "repo-link": "repo-link · Vault", "repo-copy": "repo-copy · 拷贝", "local-dir": "local-dir · 本地目录", "external-link": "external-link · 外部", "broken-link": "broken-link · 断链", invalid: "invalid · 无效" }
 const emptyConfig: SkillManagerConfig = { schemaVersion: 1, vault: { path: "", host: "wsl" }, agents: [] }
 
-function stateClass(value: string): string { return value === "linked" || value === "valid" ? "status-tag linked" : value === "pending" ? "status-tag pending" : value === "invalid" || value === "broken-link" ? "status-tag invalid" : "status-tag" }
+function stateClass(value: string): string {
+  if (value === "linked" || value === "valid") return "status-tag linked"
+  if (value === "pending") return "status-tag pending"
+  if (value === "invalid" || value === "broken-link") return "status-tag invalid"
+  return "status-tag"
+}
 function entryForSkill(entries: AgentEntry[], skill: VaultSkill): AgentEntry | undefined { return entries.find((entry) => entry.skillId === skill.id || (!entry.skillId && entry.name === skill.directoryName)) }
 function displayError(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 function focusListItem(selector: string, current: HTMLElement, delta: number): void { const items = [...document.querySelectorAll<HTMLElement>(selector)]; const index = items.indexOf(current); if (index < 0) return; items[Math.max(0, Math.min(items.length - 1, index + delta))]?.focus() }
-function operationText(action: string): string { return action === "create-link" ? "将创建" : action === "already-linked" ? "已存在" : "已阻止" }
-function operationClass(action: string): string { return action === "create-link" ? "preview-action create" : action === "already-linked" ? "preview-action existing" : "preview-action blocked" }
-function typedOperation(plan: SyncPlan["operations"][number]): string { if (!plan.link) return "(没有可执行操作：blocked)"; return plan.link.kind === "wsl-command" ? `argv: ${JSON.stringify([plan.link.executable, ...plan.link.args])}` : `fs.promises.symlink args: ${JSON.stringify(plan.link.fsArgs)}` }
+function operationText(action: string): string {
+  if (action === "create-link") return "将创建"
+  if (action === "already-linked") return "已存在"
+  return "已阻止"
+}
+function operationClass(action: string): string {
+  if (action === "create-link") return "preview-action create"
+  if (action === "already-linked") return "preview-action existing"
+  return "preview-action blocked"
+}
+function typedOperation(plan: SyncPlan["operations"][number]): string {
+  if (!plan.link) return "(没有可执行操作：blocked)"
+  if (plan.link.kind === "wsl-command") return `argv: ${JSON.stringify([plan.link.executable, ...plan.link.args])}`
+  return `fs.promises.symlink args: ${JSON.stringify(plan.link.fsArgs)}`
+}
 
-export function App() {
+export function App(): ReactElement {
   const [topTab, setTopTab] = useState<TopTab>("skills")
   const [view, setView] = useState<View>("compare")
-  const [dark, setDark] = useState(false)
+  const [dark, setDark] = useState(() => { try { return window.localStorage.getItem("skills-manager-theme") === "dark" } catch { return false } })
   const [init, setInit] = useState<InitResponse | null>(null)
   const [config, setConfig] = useState<SkillManagerConfig>(emptyConfig)
   const [vault, setVault] = useState<VaultScan | null>(null)
@@ -36,9 +54,12 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [agentModal, setAgentModal] = useState<AgentDraft | null>(null)
   const [configModal, setConfigModal] = useState(false)
+  const [configDraft, setConfigDraft] = useState<SkillManagerConfig | null>(null)
   const [preview, setPreview] = useState<SyncPlan | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [syncExecuting, setSyncExecuting] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const searchRef = useRef<HTMLInputElement>(null)
   const previewCloseRef = useRef<HTMLButtonElement>(null)
 
@@ -57,11 +78,12 @@ export function App() {
     } catch (loadError) { setError(displayError(loadError)); setInit(null); setVault(null); setAgent(null); setComparison(null) } finally { setLoading(false) }
   }, [loadAgent])
   useEffect(() => { void load() }, [load])
+  useEffect(() => { try { window.localStorage.setItem("skills-manager-theme", dark ? "dark" : "light") } catch { /* storage can be unavailable */ } }, [dark])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (event.key === "/" && target?.tagName !== "INPUT" && target?.tagName !== "TEXTAREA" && !preview && !configModal && !agentModal) { event.preventDefault(); searchRef.current?.focus() }
-      if (event.key === "Escape") { if (preview) setPreview(null); else if (configModal) setConfigModal(false); else if (agentModal) setAgentModal(null) }
+      if (event.key === "Escape") { if (preview) setPreview(null); else if (configModal) closeConfig(); else if (agentModal) setAgentModal(null) }
     }
     window.addEventListener("keydown", onKeyDown); return () => window.removeEventListener("keydown", onKeyDown)
   }, [preview, configModal, agentModal])
@@ -81,34 +103,109 @@ export function App() {
   const actualDetailEntry = view === "actual" && agent && actualSelectedPath ? agent.entries.find((entry) => entry.relativePath === actualSelectedPath) : undefined
   const validSelected = selectedIds.filter((id) => vault?.skills.some((skill) => skill.id === id && skill.validity === "valid")) ?? []
 
-  const toggleSelected = (id: string) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
-  const saveConfig = async (next: SkillManagerConfig) => { try { const result = await api.putConfig(next); setConfig(result.config); setNotice("配置已保存；未触碰任何真实目录"); setConfigModal(false); await load() } catch (saveError) { setError(displayError(saveError)) } }
-  const saveAgent = async () => {
-    if (!agentModal?.name.trim() || !agentModal.path.trim() || !agentModal.id.trim()) { setError("Agent 的 ID、名称和路径都不能为空"); return }
-    const editing = config.agents.some((item) => item.id === agentModal.id); const next = { ...config, agents: editing ? config.agents.map((item) => item.id === agentModal.id ? agentModal : item) : [...config.agents, agentModal], selectedAgentId: agentModal.id }
-    await saveConfig(next); setAgentModal(null)
+  function toggleSelected(id: string): void {
+    setSelectedIds(function updateSelection(current): string[] {
+      if (current.includes(id)) return current.filter(function (item): boolean { return item !== id })
+      return [...current, id]
+    })
   }
-  const deleteAgent = async (item: AgentConfig) => { if (!window.confirm(`只删除配置中的 Agent「${item.name}」，不删除实际目录。继续？`)) return; const nextAgents = config.agents.filter((agentValue) => agentValue.id !== item.id); await saveConfig({ ...config, agents: nextAgents, ...(nextAgents[0] ? { selectedAgentId: nextAgents[0].id } : {}) }) }
-  const openPreview = async () => { if (!selectedAgentId || !validSelected.length) return; setPreviewLoading(true); setError(null); try { const result = await api.plan(selectedAgentId, validSelected); setPreview(result.plan) } catch (previewError) { setError(displayError(previewError)) } finally { setPreviewLoading(false) } }
+  function openConfig(): void { setConfigDraft(config); setConfigModal(true) }
+  function closeConfig(): void { setConfigDraft(null); setConfigModal(false) }
+  async function saveConfig(next: SkillManagerConfig): Promise<void> {
+    try {
+      const result = await api.putConfig(next)
+      setConfig(result.config)
+      setNotice("配置已保存；未触碰任何真实目录")
+      closeConfig()
+      await load()
+    } catch (saveError) {
+      setError(displayError(saveError))
+    }
+  }
+  async function saveAgent(): Promise<void> {
+    if (!agentModal?.name.trim() || !agentModal.path.trim() || !agentModal.id.trim()) {
+      setError("Agent 的 ID、名称和路径都不能为空")
+      return
+    }
+    const editing = config.agents.some(function (item): boolean { return item.id === agentModal.id })
+    const agents = editing
+      ? config.agents.map(function (item): AgentConfig { return item.id === agentModal.id ? agentModal : item })
+      : [...config.agents, agentModal]
+    await saveConfig({ ...config, agents, selectedAgentId: agentModal.id })
+    setAgentModal(null)
+  }
+
+  async function deleteAgent(item: AgentConfig): Promise<void> {
+    if (!window.confirm(`只删除配置中的 Agent「${item.name}」，不删除实际目录。继续？`)) return
+    const nextAgents = config.agents.filter(function (agentValue): boolean { return agentValue.id !== item.id })
+    const nextConfig: SkillManagerConfig = { ...config, agents: nextAgents }
+    if (nextAgents[0]) nextConfig.selectedAgentId = nextAgents[0].id
+    await saveConfig(nextConfig)
+  }
+
+  async function openPreview(): Promise<void> {
+    if (!selectedAgentId || !validSelected.length) return
+    setPreviewLoading(true)
+    setError(null)
+    try {
+      const result = await api.plan(selectedAgentId, validSelected)
+      setPreview(result.plan)
+    } catch (previewError) {
+      setError(displayError(previewError))
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+  async function executeSync(): Promise<void> {
+    if (!preview || !selectedAgentId) return
+    const createCount = preview.operations.filter(function (operation): boolean { return operation.action === "create-link" }).length
+    if (!window.confirm(`确认真实创建 ${createCount} 个 Skill 链接？\n\n不会修改 Vault。冲突条目会保持阻止。`)) return
+    setSyncExecuting(true)
+    setError(null)
+    try {
+      const result = await api.executeSync(selectedAgentId, preview.selectedSkillIds)
+      if (result.execution === "completed") {
+        setNotice("Skill 链接已创建；Agent 扫描已刷新")
+      } else {
+        const failures = result.results.filter(function (item): boolean { return !item.success }).map(function (item): string { return `${item.skillId}: ${item.error ?? item.message}` })
+        setError(failures.join("；") || "部分 Skill 链接未创建")
+      }
+      setPreview(null)
+      await load()
+    } catch (syncError) {
+      setError(displayError(syncError))
+    } finally {
+      setSyncExecuting(false)
+    }
+  }
+  function toggleGroup(key: string): void {
+    setCollapsedGroups(function updateGroups(current): Set<string> {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+  const editableConfig = configDraft ?? config
 
   return <div className={dark ? "app dark" : "app"}>
-    <header className="topbar"><div className="brand-mark">SV</div><div className="brand-copy"><strong>Skill Vault</strong><span>localhost workspace</span></div><div className="divider" /><nav className="top-tabs" aria-label="主导航"><button className={topTab === "skills" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("skills")}>技能管理</button><button className={topTab === "links" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("links")}>通用链接</button></nav><div className="top-spacer" /><button className="icon-button" aria-label="切换主题" onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button><span className="runtime-pill"><i /> WSL · 127.0.0.1:8787</span></header>
-    {topTab === "links" ? <main className="placeholder-page"><div className="empty-icon">↗</div><h1>通用链接</h1><p>通用链接工作台是后续阶段；当前导航不会触碰文件系统。</p><span className="soft-badge">Phase 2 · 占位</span></main> : <main className="workspace">
-      <section className="workspace-toolbar"><div className="vault-context"><span className="eyebrow">VAULT REPOSITORY</span><strong>{config.vault.path || "未配置 Vault"}</strong></div><button className="secondary-button" onClick={() => setConfigModal(true)}>⚙ 配置</button><button className="secondary-button" onClick={() => void load()} disabled={loading}>↻ 刷新</button>{vault && <span className="validation-pill"><b>{vault.summary.issueCount ? "!" : "✓"}</b> {vault.summary.issueCount} 个问题</span>}</section>
+    <header className="topbar"><div className="brand-mark">SV</div><div className="brand-copy"><strong>Skill Vault</strong><span>localhost workspace</span></div><div className="divider" /><nav className="top-tabs" aria-label="主导航"><button className={topTab === "skills" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("skills")}>技能管理</button><button className={topTab === "links" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("links")}>通用链接</button></nav><div className="top-spacer" /><button className="icon-button" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button><span className="runtime-pill"><i /> WSL · 127.0.0.1:8787</span></header>
+    {topTab === "links" ? <><div className="links-global-messages">{error && <div role="alert" className="skill-validation-banner">⚠ {error}<button onClick={() => setError(null)}>×</button></div>}{notice && <div className="notice-banner" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}</div><LinksWorkbench config={config} onConfigChange={setConfig} onNotice={(message) => setNotice(message)} onError={(message) => setError(message || null)} /></> : <main className="workspace">
+      <section className="workspace-toolbar"><div className="vault-context"><span className="eyebrow">VAULT REPOSITORY</span><strong>{config.vault.path || "未配置 Vault"}</strong></div><button className="secondary-button" onClick={openConfig}>⚙ 配置</button><button className="secondary-button" onClick={() => void load()} disabled={loading}>↻ 刷新</button>{vault && <span className="validation-pill"><b>{vault.summary.issueCount ? "!" : "✓"}</b> {vault.summary.issueCount} 个问题</span>}</section>
       <section className="view-tabs" aria-label="技能视图">{([ ["repository", "Repository"], ["compare", "Compare"], ["actual", "Agent actual"]] as const).map(([key, label]) => <button key={key} className={view === key ? "view-tab active" : "view-tab"} onClick={() => { setView(key); if (key !== "actual") setActualSelectedPath(null) }}>{label}</button>)}<div className="toolbar-spacer" /><span className="shortcut-hint">按 <kbd>/</kbd> 搜索 · ↑↓ 移动 · Space 选择 · Esc 关闭</span><input ref={searchRef} aria-label="搜索技能" placeholder="搜索 skill、collection、描述…" value={query} onChange={(event) => setQuery(event.target.value)} /></section>
       {error && <div role="alert" className="skill-validation-banner">⚠ {error} <button onClick={() => void load()}>重试</button></div>}{notice && <div className="notice-banner" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
       <section className="columns">
-        <aside className="panel agent-panel"><div className="panel-heading"><span>AGENTS</span><button aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}>＋</button></div><div className="agent-list">{loading && <div className="list-empty">正在读取 Agent…</div>}{!loading && !config.agents.length && <div className="list-empty">尚未配置 Agent</div>}{config.agents.map((item) => { const health = init?.agents.find((summary) => summary.id === item.id); return <div className={selectedAgentId === item.id ? "agent-row selected" : "agent-row"} key={item.id} role="button" tabIndex={0} onClick={() => void selectAgent(item.id)} onKeyDown={(event) => { if (event.key === "Enter") void selectAgent(item.id); if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-agent-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }} data-agent-row><span className="agent-avatar">{item.name.slice(0, 1).toUpperCase() || "?"}</span><span className="agent-info"><b>{item.name}</b><small>{item.host} · {item.path}</small></span><span className="agent-state">{health?.issueCount ? `${health.issueCount} 问题` : "就绪"}</span><span className="agent-actions"><button aria-label={`编辑 ${item.name}`} onClick={(event) => { event.stopPropagation(); setAgentModal(item) }}>✎</button><button aria-label={`删除 ${item.name}`} onClick={(event) => { event.stopPropagation(); void deleteAgent(item) }}>×</button></span></div> })}</div><div className="panel-foot"><span>{config.agents.length} agents</span><button onClick={() => setConfigModal(true)}>管理</button></div></aside>
+        <aside className="panel agent-panel"><div className="panel-heading"><span>AGENTS</span><button aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}>＋</button></div><div className="agent-list">{loading && <div className="list-empty">正在读取 Agent…</div>}{!loading && !config.agents.length && <div className="list-empty">尚未配置 Agent</div>}{config.agents.map((item) => { const health = init?.agents.find((summary) => summary.id === item.id); return <div className={selectedAgentId === item.id ? "agent-row selected" : "agent-row"} key={item.id} role="button" tabIndex={0} onClick={() => void selectAgent(item.id)} onKeyDown={(event) => { if (event.key === "Enter") void selectAgent(item.id); if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-agent-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }} data-agent-row><span className="agent-avatar">{item.name.slice(0, 1).toUpperCase() || "?"}</span><span className="agent-info"><b>{item.name}</b><small>{item.host} · {item.path}</small></span><span className="agent-state">{health?.issueCount ? `${health.issueCount} 问题` : "就绪"}</span><span className="agent-actions"><button aria-label={`编辑 ${item.name}`} onClick={(event) => { event.stopPropagation(); setAgentModal(item) }}>✎</button><button aria-label={`删除 ${item.name}`} onClick={(event) => { event.stopPropagation(); void deleteAgent(item) }}>×</button></span></div> })}</div><div className="panel-foot"><span>{config.agents.length} agents</span><button onClick={openConfig}>管理</button></div></aside>
         <section className="panel skill-panel"><div className="panel-heading"><span>{view === "repository" ? "VAULT SKILLS · REPOSITORY" : view === "actual" ? "ACTUAL ENTRIES" : "VAULT SKILLS · COMPARE"}</span><span className="result-count">{view === "actual" ? actualGroups.reduce((sum, [, entries]) => sum + entries.length, 0) : `${filteredSkills.length} / ${vault?.summary.total ?? 0}`} 项</span></div><div className="skill-groups">
           {loading && <div className="list-empty">正在扫描 Vault…</div>}
           {!loading && view !== "actual" && !groups.length && <div className="list-empty">没有匹配的 Skill</div>}
           {!loading && view === "actual" && !actualGroups.length && <div className="list-empty">当前 Agent 没有实际条目</div>}
-          {view === "actual" ? actualGroups.map(([kind, entries]) => <div className="skill-group" key={kind}><div className="group-heading"><span>⌄</span><b>{kindLabels[kind] ?? kind}</b><small>{entries.length}</small></div>{entries.map((entry) => <div role="button" tabIndex={0} data-actual-row className={actualSelectedPath === entry.relativePath ? "skill-row selected" : "skill-row"} key={entry.relativePath} onClick={() => { setActualSelectedPath(entry.relativePath); if (entry.skillId) setSelectedSkillId(entry.skillId) }} onKeyDown={(event) => { if (event.key === "Enter") { setActualSelectedPath(entry.relativePath); if (entry.skillId) setSelectedSkillId(entry.skillId) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-actual-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}><span className="actual-kind-dot" /><span className="skill-name"><b>{entry.name}</b><small>{entry.relativePath}{entry.targetPath ? ` → ${entry.targetPath}` : ""}</small></span><span className={stateClass(entry.kind === "broken-link" ? "broken-link" : entry.kind === "invalid" ? "invalid" : "local-dir")}>{kindLabels[entry.kind] ?? entry.kind}</span></div>)}</div>) : groups.map(([collection, skills]) => <div className="skill-group" key={collection}><div className="group-heading"><span>⌄</span><b>{collection}</b><small>{skills.length}</small></div>{skills.map((skill) => { const row = comparison?.rows.find((item) => item.skillId === skill.id); const status = view === "repository" ? (skill.validity === "valid" ? "valid" : "invalid") : row?.state ?? (skill.validity === "invalid" ? "invalid" : "pending"); const canSelect = skill.validity === "valid"; return <div role="button" tabIndex={0} data-skill-row className={`${selectedSkillId === skill.id ? "skill-row selected" : "skill-row"}${selectedIds.includes(skill.id) ? " checked-row" : ""}`} key={`${skill.relativePath}:${skill.id}`} onClick={() => setSelectedSkillId(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedSkillId(skill.id); if (event.key === " " && view === "compare") { event.preventDefault(); if (canSelect) toggleSelected(skill.id) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-skill-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}><>{view === "compare" ? <input aria-label={`选择 ${skill.id}`} disabled={!canSelect} type="checkbox" checked={selectedIds.includes(skill.id)} onChange={() => toggleSelected(skill.id)} onClick={(event) => event.stopPropagation()} /> : <span className="row-bullet">{skill.validity === "valid" ? "•" : "!"}</span>}</><span className="skill-name"><b>{skill.id}</b><small>{skill.relativePath}</small></span><span className={stateClass(status)}>{stateLabels[status] ?? status}</span></div> })}</div>)}</div><div className="panel-foot"><span>{view === "compare" ? `${validSelected.length} 项已选择` : `${filteredSkills.length} 项`}</span>{view === "compare" && <button className="primary-button" disabled={!validSelected.length || previewLoading} onClick={() => void openPreview()}>{previewLoading ? "生成中…" : "预览同步 →"}</button>}</div></section>
-        <aside className="panel detail-panel">{view === "actual" && actualDetailEntry && !actualDetailEntry.skillId ? <div className="detail-content"><div className="detail-title"><span className="detail-symbol">⌁</span><div><h2>{actualDetailEntry.name}</h2><p>Agent actual · {actualDetailEntry.relativePath}</p></div></div><div className="detail-section"><label>ENTRY KIND</label><code>{kindLabels[actualDetailEntry.kind] ?? actualDetailEntry.kind}</code></div><div className="detail-section"><label>PATH</label><code>{actualDetailEntry.absolutePath}</code></div><div className="detail-section"><label>TARGET</label><code>{actualDetailEntry.targetPath ?? "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{actualDetailEntry.issues.map((issue) => issue.message).join("；") || "无额外问题。"}</p></div></div> : detail ? <><div className="panel-heading"><span>SKILL DETAIL</span><span className={detail.validity === "valid" ? "detail-ok" : "detail-bad"}>{detail.validity}</span></div><div className="detail-content"><div className="detail-title"><span className="detail-symbol">✦</span><div><h2>{detail.id}</h2><p>{detail.collection} / {detail.relativePath}</p></div></div><div className="detail-section"><label>VAULT PATH</label><code>{detail.absolutePath}</code></div><div className="detail-section"><label>FRONTMATTER</label><pre>{detail.frontmatter.raw || "(empty)"}</pre></div><div className="detail-section"><label>VALIDATION</label><div className={detail.validity === "valid" ? "validation-line good" : "validation-line bad"}><span>{detail.validity === "valid" ? "✓" : "!"}</span>{detail.validity === "valid" ? "目录名与 name 完全匹配" : detail.issues.map((issue) => issue.message).join("；")}</div></div><div className="detail-section"><label>AGENT ENTRY · {(config.agents.find((item) => item.id === selectedAgentId)?.name ?? "未选择").toUpperCase()}</label>{detailEntry ? <div className="agent-entry"><span className="entry-dot" />{kindLabels[detailEntry.kind] ?? detailEntry.kind}<code>{detailEntry.absolutePath}{detailEntry.targetPath ? ` → ${detailEntry.targetPath}` : ""}</code></div> : <div className="detail-hint">当前 Agent 没有同名实际条目；状态：{detailRow ? stateLabels[detailRow.state] : "未扫描"}</div>}</div><div className="detail-section"><label>FLAT LINK PATH</label><code>{selectedAgentId && config.agents.find((item) => item.id === selectedAgentId) ? `${config.agents.find((item) => item.id === selectedAgentId)!.path}/${detail.name ?? detail.directoryName}` : "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{[...detail.issues.map((issue) => issue.message), ...(detailRow?.risks ?? [])].join("；") || "无阻塞风险。同步仅生成预览，不执行文件操作。"}</p></div></div></> : <div className="empty-state">选择一个条目查看详情</div>}</aside>
-      </section><footer className="statusbar"><span><i className="status-dot" />{loading ? "正在连接服务…" : vault ? `扫描完成 · ${vault.summary.total} 个 Skill · ${validSelected.length} 个已选择` : "服务未连接"}</span><span>Vault 只读 · 同步仅生成预览</span></footer>
+          {view === "actual" ? actualGroups.map(([kind, entries]) => <div className="skill-group" key={kind}><button type="button" className="group-heading" aria-expanded={!collapsedGroups.has(`actual:${kind}`)} onClick={() => toggleGroup(`actual:${kind}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleGroup(`actual:${kind}`) } }}><span>{collapsedGroups.has(`actual:${kind}`) ? "›" : "⌄"}</span><b>{kindLabels[kind] ?? kind}</b><small>{entries.length}</small></button>{!collapsedGroups.has(`actual:${kind}`) && entries.map((entry) => <div role="button" tabIndex={0} data-actual-row className={actualSelectedPath === entry.relativePath ? "skill-row selected" : "skill-row"} key={entry.relativePath} onClick={() => { setActualSelectedPath(entry.relativePath); if (entry.skillId) setSelectedSkillId(entry.skillId) }} onKeyDown={(event) => { if (event.key === "Enter") { setActualSelectedPath(entry.relativePath); if (entry.skillId) setSelectedSkillId(entry.skillId) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-actual-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}><span className="actual-kind-dot" /><span className="skill-name"><b>{entry.name}</b><small>{entry.relativePath}{entry.targetPath ? ` → ${entry.targetPath}` : ""}</small></span><span className={stateClass(entry.kind === "broken-link" ? "broken-link" : entry.kind === "invalid" ? "invalid" : "local-dir")}>{kindLabels[entry.kind] ?? entry.kind}</span></div>)}</div>) : groups.map(([collection, skills]) => <div className="skill-group" key={collection}><button type="button" className="group-heading" aria-expanded={!collapsedGroups.has(`collection:${collection}`)} onClick={() => toggleGroup(`collection:${collection}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleGroup(`collection:${collection}`) } }}><span>{collapsedGroups.has(`collection:${collection}`) ? "›" : "⌄"}</span><b>{collection}</b><small>{skills.length}</small></button>{!collapsedGroups.has(`collection:${collection}`) && skills.map((skill) => { const row = comparison?.rows.find((item) => item.skillId === skill.id); const status = view === "repository" ? (skill.validity === "valid" ? "valid" : "invalid") : row?.state ?? (skill.validity === "invalid" ? "invalid" : "pending"); const canSelect = skill.validity === "valid"; return <div role="button" tabIndex={0} data-skill-row className={`${selectedSkillId === skill.id ? "skill-row selected" : "skill-row"}${selectedIds.includes(skill.id) ? " checked-row" : ""}`} key={`${skill.relativePath}:${skill.id}`} onClick={() => setSelectedSkillId(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") setSelectedSkillId(skill.id); if (event.key === " " && view === "compare") { event.preventDefault(); if (canSelect) toggleSelected(skill.id) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-skill-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}><>{view === "compare" ? <input aria-label={`选择 ${skill.id}`} disabled={!canSelect} type="checkbox" checked={selectedIds.includes(skill.id)} onChange={() => toggleSelected(skill.id)} onClick={(event) => event.stopPropagation()} /> : <span className="row-bullet">{skill.validity === "valid" ? "•" : "!"}</span>}</><span className="skill-name"><b>{skill.id}</b><small>{skill.relativePath}</small></span><span className={stateClass(status)}>{stateLabels[status] ?? status}</span></div> })}</div>)}</div><div className="panel-foot"><span>{view === "compare" ? `${validSelected.length} 项已选择` : `${filteredSkills.length} 项`}</span>{view === "compare" && <button className="primary-button" disabled={!validSelected.length || previewLoading} onClick={() => void openPreview()}>{previewLoading ? "生成中…" : "预览同步 →"}</button>}</div></section>
+        <aside className="panel detail-panel">{view === "actual" && actualDetailEntry && !actualDetailEntry.skillId ? <div className="detail-content"><div className="detail-title"><span className="detail-symbol">⌁</span><div><h2>{actualDetailEntry.name}</h2><p>Agent actual · {actualDetailEntry.relativePath}</p></div></div><div className="detail-section"><label>ENTRY KIND</label><code>{kindLabels[actualDetailEntry.kind] ?? actualDetailEntry.kind}</code></div><div className="detail-section"><label>PATH</label><code>{actualDetailEntry.absolutePath}</code></div><div className="detail-section"><label>TARGET</label><code>{actualDetailEntry.targetPath ?? "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{actualDetailEntry.issues.map((issue) => issue.message).join("；") || "无额外问题。"}</p></div></div> : detail ? <><div className="panel-heading"><span>SKILL DETAIL</span><span className={detail.validity === "valid" ? "detail-ok" : "detail-bad"}>{detail.validity}</span></div><div className="detail-content"><div className="detail-title"><span className="detail-symbol">✦</span><div><h2>{detail.id}</h2><p>{detail.collection} / {detail.relativePath}</p></div></div><div className="detail-section"><label>VAULT PATH</label><code>{detail.absolutePath}</code></div><div className="detail-section"><label>FRONTMATTER</label><pre>{detail.frontmatter.raw || "(empty)"}</pre></div><div className="detail-section"><label>VALIDATION</label><div className={detail.validity === "valid" ? "validation-line good" : "validation-line bad"}><span>{detail.validity === "valid" ? "✓" : "!"}</span>{detail.validity === "valid" ? "目录名与 name 完全匹配" : detail.issues.map((issue) => issue.message).join("；")}</div></div><div className="detail-section"><label>AGENT ENTRY · {(config.agents.find((item) => item.id === selectedAgentId)?.name ?? "未选择").toUpperCase()}</label>{detailEntry ? <div className="agent-entry"><span className="entry-dot" />{kindLabels[detailEntry.kind] ?? detailEntry.kind}<code>{detailEntry.absolutePath}{detailEntry.targetPath ? ` → ${detailEntry.targetPath}` : ""}</code></div> : <div className="detail-hint">当前 Agent 没有同名实际条目；状态：{detailRow ? stateLabels[detailRow.state] : "未扫描"}</div>}</div><div className="detail-section"><label>FLAT LINK PATH</label><code>{selectedAgentId && config.agents.find((item) => item.id === selectedAgentId) ? `${config.agents.find((item) => item.id === selectedAgentId)!.path}/${detail.name ?? detail.directoryName}` : "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{[...detail.issues.map((issue) => issue.message), ...(detailRow?.risks ?? [])].join("；") || "无阻塞风险。确认后可创建链接。"}</p></div></div></> : <div className="empty-state">选择一个条目查看详情</div>}</aside>
+      </section><footer className="statusbar"><span><i className="status-dot" />{loading ? "正在连接服务…" : vault ? `扫描完成 · ${vault.summary.total} 个 Skill · ${validSelected.length} 个已选择` : "服务未连接"}</span><span>Vault 只读 · 确认后可真实创建链接</span></footer>
     </main>}
-    {configModal && <div className="modal-backdrop show" role="dialog" aria-modal="true"><div className="modal"><h3>配置</h3><label>Vault 路径<input autoFocus value={config.vault.path} onChange={(event) => setConfig((current) => ({ ...current, vault: { ...current.vault, path: event.target.value } }))} /></label><label>Vault Host<select value={config.vault.host} onChange={(event) => setConfig((current) => ({ ...current, vault: { ...current.vault, host: event.target.value as HostKind } }))}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><p className="hint">保存只修改 data/config.json；不会创建、删除或修改 Vault / Agent 实际路径。</p><div className="modal-actions"><button onClick={() => setConfigModal(false)}>取消</button><button className="primary-button" onClick={() => void saveConfig(config)}>保存</button></div></div></div>}
-    {agentModal && <div className="modal-backdrop show" role="dialog" aria-modal="true"><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => setAgentModal({ ...agentModal, path: event.target.value })} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button onClick={() => setAgentModal(null)}>取消</button><button className="primary-button" onClick={() => void saveAgent()}>保存</button></div></div></div>}
-    {preview && <div className="modal-backdrop show" role="dialog" aria-modal="true" aria-labelledby="preview-title"><div className="modal modal-wide preview-modal"><h3 id="preview-title">同步预览 · 只读</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。此窗口不会执行文件操作。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillId}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} onClick={() => setPreview(null)}>关闭（不执行）</button></div></div></div>}
+    {configModal && <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) closeConfig() }}><div className="modal"><h3>配置</h3><label>Vault 路径<input autoFocus value={editableConfig.vault.path} onChange={(event) => setConfigDraft((current) => ({ ...(current ?? config), vault: { ...(current ?? config).vault, path: event.target.value } }))} /></label><label>Vault Host<select value={editableConfig.vault.host} onChange={(event) => setConfigDraft((current) => ({ ...(current ?? config), vault: { ...(current ?? config).vault, host: event.target.value as HostKind } }))}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><p className="hint">保存只修改 data/config.json；不会创建、删除或修改 Vault / Agent 实际路径。</p><div className="modal-actions"><button onClick={closeConfig}>取消</button><button className="primary-button" onClick={() => void saveConfig(editableConfig)}>保存</button></div></div></div>}
+    {agentModal && <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => setAgentModal({ ...agentModal, path: event.target.value })} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button onClick={() => setAgentModal(null)}>取消</button><button className="primary-button" onClick={() => void saveAgent()}>保存</button></div></div></div>}
+    {preview && <div className="modal-backdrop show" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={(event) => { if (event.target === event.currentTarget) setPreview(null) }}><div className="modal modal-wide preview-modal"><h3 id="preview-title">同步预览 · 确认后执行</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。点击确认后，后台会真实创建缺失的链接。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillId}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} onClick={() => setPreview(null)}>关闭</button><button className="primary-button" disabled={syncExecuting || !preview.operations.some((operation) => operation.action === "create-link")} onClick={() => void executeSync()}>{syncExecuting ? "执行中…" : "确认并执行"}</button></div></div></div>}
   </div>
 }

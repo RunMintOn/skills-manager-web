@@ -1,6 +1,6 @@
 # Skill Manager Web — CONTEXT
 
-个人本地工具：管理只读 Skill Vault 与多个 Agent 路径之间的链接。界面为 localhost Web，Node 服务在 WSL 内运行，Windows 浏览器访问。使用者：本人与 AI Agent。
+个人本地工具：管理只读 Skill Vault、多个 Agent 路径和通用文件系统链接。界面为 localhost Web，Node 服务在 WSL 内运行，Windows 浏览器访问。使用者：本人与 AI Agent。
 
 ## 已确认决策（用户确认）
 
@@ -18,7 +18,7 @@
 - **视图**：Repository（审计 Vault）/ Compare（默认，Agent vs Vault）/ Agent actual（只看 Agent 实际条目），同一三列布局切换。
 - **领域核心**：复用已验证 TypeScript core（来源：skill-manager-opentui-spike 与 skill-manager-opentui 的 src/core）。
 - **Agent 可调用**：CLI `status --json` / `plan --json`（薄包装，复用同一核心，独立于服务可运行）。
-- **阶段顺序**：三列界面 + mock → 接真实扫描核心 → HTTP API → 预览 → 真实执行（后置切片，需确认）。
+- **阶段顺序**：三列界面 + mock → 真实扫描核心 → HTTP API → 预览 → 真实链接执行与通用链接工作台。
 
 ## 决策历史
 
@@ -51,7 +51,9 @@
 
 **比较状态**：已链接 / 待链接 / 本地目录 / 外部链接 / 断链 / 无效。Agent-only 条目单独保留显示。
 
-**链接概念**：Link Target（已存在）、Link Path（新条目，不得已存在）、HostKind（wsl / windows，显式，不做字符串猜测）。
+**链接概念**：Link Target（已存在的文件或目录）、Link Path（新链接条目，不得已存在）、HostKind（wsl / windows，显式，不做字符串猜测）。通用链接由用户输入任意目标路径和链接路径。用户确认后由软件执行真实链接操作。
+
+**同步概念**：Skill 同步不是复制内容。它是在选定 Agent Path 下，为缺失 Skill 创建扁平链接。Vault 保持只读。冲突条目不覆盖。
 
 ## 资产地图
 
@@ -69,11 +71,11 @@
 - T4：前端对接 API；视图切换；搜索多选
 - T5：同步预览 + 键盘可达性
 - T6：开始菜单快捷方式脚本 + 启动文档 + 联调验收
-- T7（后置，需单独确认）：真实执行同步；通用链接工作台
+- T7：真实执行 Skill 链接；通用链接工作台；链接扫描、删除和常用路径
 
 ## 管理者拍板（用户可否决）
 
 - 端口固定 8787
 - 配置存 `data/config.json`（gitignore），通过 UI 配置页维护；首次运行不隐式读写用户 home
-- 通用链接工作台 = Phase 2（spec 已纳入，先完成技能管理）
+- 通用链接工作台和真实链接执行属于当前产品范围。创建和删除必须经过预检、明确确认，并返回真实结果。
 - 不引入重型组件库，按需自建 shadcn/ui 风格组件

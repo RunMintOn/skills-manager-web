@@ -1,6 +1,6 @@
 # Skill Vault Manager
 
-WSL 内运行、Windows 浏览器访问的 localhost Skill 管理器。Node 服务默认监听 `127.0.0.1:8787`；Vault 和 Agent 扫描只读，同步只生成 `execution=not-run` 预览。
+WSL 内运行、Windows 浏览器访问的 localhost Skill 和通用链接管理器。Node 服务默认监听 `127.0.0.1:8787`。Vault 始终只读；链接创建和删除在用户明确确认后由软件真实执行。
 
 ## 开发与运行
 
@@ -36,6 +36,9 @@ npm start
   "agents": [
     { "id": "pi", "name": "Pi", "host": "wsl", "path": "/absolute/agent/skills" }
   ],
+  "commonPaths": [
+    { "id": "vault", "name": "Vault", "host": "wsl", "path": "/absolute/read-only/vault" }
+  ],
   "selectedAgentId": "pi"
 }
 ```
@@ -51,8 +54,13 @@ npm start
 - `GET /api/config` / `PUT /api/config`：读写应用配置。
 - `GET /api/agent/:id`：指定 Agent 实际条目和比较结果。
 - `POST /api/plan`：请求体 `{ "agentId": "...", "selectedSkillIds": ["..."] }`，只返回预览计划。
+- `POST /api/sync`：请求体增加 `confirm: true`，按预览计划真实创建缺失的 Skill 链接，返回每项结果和刷新后的 Agent 状态。
+- `POST /api/links/preflight`：检查任意目标路径和链接路径。
+- `POST /api/links/create`：预检通过后创建真实链接。
+- `POST /api/links/delete`：只删除已识别的链接入口，不删除目标内容。
+- `POST /api/links/scan`：扫描目录，支持不跟随链接的递归模式。
 
-服务没有真实同步执行端点。计划中的 WSL 操作是 argv 数组（`shell: false`），Windows 操作是 typed `fs.promises.symlink` 参数；不生成 shell command string。
+通用链接支持 WSL 符号链接、WSL 与 Windows 驱动器路径之间的链接，以及 Windows Junction/符号链接。计划中的 WSL 操作仍使用 argv 数组（`shell: false`）；Windows 操作使用 typed filesystem 参数或编码后的 PowerShell 调用，不拼接可执行 shell 命令。
 
 ## CLI
 
@@ -78,22 +86,24 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 
 - Vault 是只读源；扫描不会跟随链接目录，不会执行 YAML 或 shell。
 - 目录名必须与 frontmatter `name` 精确匹配；重复 Skill ID、无效元数据和六类 Agent 条目都会保留并标风险。
-- 扁平 Link Path 只在预览中计算；本阶段不创建/删除/替换任何真实链接或目录。
-- 通用链接导航保留为 Phase 2 占位；真实同步执行是后置切片，需单独确认。
+- 创建链接前会检查目标存在、链接路径不存在、父目录可用，并拒绝覆盖普通文件或目录。
+- 删除链接只接受已识别的符号链接或 Junction，使用不跟随目标的删除操作。
+- Skill 同步只创建缺失的扁平链接，不复制 Vault 内容，不覆盖冲突 Agent 条目。
+- 创建和删除必须由页面按钮和确认操作触发；扫描、状态和预览不会修改文件系统。
 
 ## 验证记录
 
 ### 已验证（本工作树）
 
 - `npm run typecheck` 通过。
-- `npm test`（Vitest，fixtures + 系统临时目录）通过：Vault 嵌套 Collection、Loose、重复/无效、Agent 六类、比较和无写入计划。
+- `npm test`（Vitest，fixtures + 系统临时目录）通过：Vault 嵌套 Collection、Loose、重复/无效、Agent 六类、比较、预览计划和真实通用链接创建/扫描/删除。
 - `npm run build` 通过。
 - `node src/server/cli.ts` 直接运行通过；`config init/status --json/plan --json` 已用 fixtures 配置生成 `artifacts/` 输出。
-- Node API 的 `/api/init`、`/api/vault`、`/api/config`（含 PUT）、`/api/agent/:id`、`/api/plan` 已用 curl 验证稳定 JSON。当前执行环境已有端口捕获进程，因此联调验证使用了临时 `SKILLS_MANAGER_PORT=8788`；默认实现仍为 8787。
+- Node API 的 `/api/init`、`/api/vault`、`/api/config`（含 PUT）、`/api/agent/:id`、`/api/plan`、`/api/links/*`、`/api/sync` 已在临时目录或 fixtures 上验证。默认产品端口为 8787。
 - Vite dev 首帧可通过 `curl http://127.0.0.1:5173/` 获取；生产构建由 Node 服务提供静态页面。
 
 ### 尚未验证（需用户手动）
 
 - Windows 原生浏览器经 WSL2 localhost 转发访问的实际网络链路。
-- 真实浏览器中的三列视觉细节、鼠标滚轮、Tab/Shift+Tab 焦点循环和不同窗口尺寸手感；代码已提供原生 Tab、列表 ↑↓、Space、Enter、`/` 搜索、Esc 关闭路径。
-- Windows Host Junction 的实际操作；本阶段没有执行端点，避免误触真实路径。
+- Windows Host Junction 在当前目标机器上的实际权限和系统策略；WSL 临时目录上的真实符号链接已验证。
+- 不同窗口尺寸下的最终视觉手感。

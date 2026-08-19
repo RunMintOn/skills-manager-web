@@ -7,7 +7,11 @@ import {
   buildPlanForAgent,
   createFixtureConfig,
   createLinkOperation,
+  executeDeleteLink,
+  executeLink,
   getHostPathAdapter,
+  preflightLink,
+  scanLinkDirectory,
   isSafeWslPath,
   parseFrontmatter,
   scanAgent,
@@ -31,7 +35,7 @@ describe("frontmatter and safe path boundaries", () => {
     expect(isSafeWslPath("/tmp/../escape")).toBe(false)
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "中文 skill")).not.toThrow()
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "../escape")).toThrow()
-    expect(() => createLinkOperation({ vaultHost: "windows", agentHost: "wsl", targetPath: "C:\\\\Vault\\skill", linkPath: "/tmp/skill" })).toThrow()
+    expect(() => createLinkOperation({ vaultHost: "windows", agentHost: "wsl", targetPath: "C:\\\\Vault\\skill", linkPath: "/tmp/skill" })).not.toThrow()
   })
 })
 
@@ -79,6 +83,31 @@ describe("comparison and preview plan", () => {
     expect(create.execution).toBe("not-run"); expect(create.link?.kind).toBe("wsl-command"); expect((create.link as { shell: false }).shell).toBe(false)
     expect((create.link as { args: string[] }).args).not.toContain("&&")
     expect(await readFile(nodePath.join(fixturePath("agents/default"), "local-notes/README.md"), "utf8")).toBe(before)
+  })
+})
+
+describe("real generic link service", () => {
+  it("preflights, creates, scans and deletes a file link without deleting its target", async () => {
+    const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-link-test-"))
+    try {
+      const target = nodePath.join(root, "source.txt"); const destination = nodePath.join(root, "links"); const link = nodePath.join(destination, "source.txt")
+      await mkdir(destination, { recursive: true }); await writeFile(target, "keep me")
+      const spec = { targetHost: "wsl" as const, targetPath: target, linkHost: "wsl" as const, linkPath: link }
+      expect((await preflightLink(spec)).ready).toBe(true)
+      const created = await executeLink(spec); expect(created).toMatchObject({ attempted: true, success: true })
+      const scan = await scanLinkDirectory({ host: "wsl", path: destination }); expect(scan.entries).toHaveLength(1); expect(scan.entries[0]).toMatchObject({ kind: "wsl-symlink", targetStatus: "exists", canDelete: true })
+      const deleted = await executeDeleteLink({ host: "wsl", path: link }); expect(deleted).toMatchObject({ attempted: true, success: true }); expect(await readFile(target, "utf8")).toBe("keep me")
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it("blocks an existing destination and ordinary directory deletion", async () => {
+    const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-link-test-"))
+    try {
+      const target = nodePath.join(root, "source"); const destination = nodePath.join(root, "destination"); const link = nodePath.join(destination, "entry")
+      await mkdir(target); await mkdir(destination); await writeFile(link, "do not replace")
+      const preflight = await preflightLink({ targetHost: "wsl", targetPath: target, linkHost: "wsl", linkPath: link }); expect(preflight.ready).toBe(false); expect(preflight.risks.join(" ")).toContain("已经存在")
+      const deletion = await executeDeleteLink({ host: "wsl", path: destination }); expect(deletion.success).toBe(false); expect(deletion.error).toContain("普通文件和目录")
+    } finally { await rm(root, { recursive: true, force: true }) }
   })
 })
 
