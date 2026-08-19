@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+data/config.json
+data/config.json.tmp*
+artifacts/*.json
+artifacts/*.txt
+*.log
