@@ -13,7 +13,10 @@ function findByCanonical(vault: VaultScan, target: string, adapter: HostPathAdap
 function inVault(vault: VaultScan, target: string, adapter: HostPathAdapter): boolean { return vault.host === adapter.host && Boolean(vault.canonicalPath && isInside(adapter, vault.canonicalPath, target)) }
 async function readDirectoryMetadata(adapter: HostPathAdapter, path: string): Promise<{ frontmatter?: Frontmatter; issues: AgentEntryIssue[] }> {
   const skillFile = adapter.join(path, "SKILL.md"); if (!(await exists(skillFile))) return { issues: [] }
-  try { const frontmatter = parseFrontmatter(await readFile(skillFile, "utf8")); const issues: AgentEntryIssue[] = []; if (!frontmatter.present || frontmatter.errors.length || !frontmatter.name) issues.push(issue("invalid-skill-metadata", "error", "Agent directory contains invalid SKILL.md frontmatter.")); return { frontmatter, issues } } catch (error) { return { issues: [issue("invalid-skill-metadata", "error", `Cannot read Agent SKILL.md: ${error instanceof Error ? error.message : String(error)}`)] } }
+  try { const frontmatter = parseFrontmatter(await readFile(skillFile, "utf8")); const issues: AgentEntryIssue[] = []; const dirName = adapter.basename(path)
+    if (!frontmatter.name) issues.push(issue("invalid-skill-metadata", "error", "SKILL.md has no non-empty name."))
+    else if (frontmatter.name !== dirName) issues.push(issue("invalid-skill-metadata", "error", "Directory name does not exactly match SKILL.md name."))
+    return { frontmatter, issues } } catch (error) { return { issues: [issue("invalid-skill-metadata", "error", `Cannot read Agent SKILL.md: ${error instanceof Error ? error.message : String(error)}`)] } }
 }
 function baseEntry(adapter: HostPathAdapter, root: string, name: string, absolutePath: string): Pick<AgentEntry, "name" | "relativePath" | "absolutePath"> { return { name, relativePath: toStableRelative(adapter, adapter.relative(root, absolutePath)), absolutePath } }
 /** Scan one Agent's direct children, deliberately never following links as directories. */
@@ -35,11 +38,15 @@ export async function scanAgent(config: AgentConfig, vault: VaultScan): Promise<
     if (stat.isSymbolicLink()) {
       const target = await safeRealpath(path)
       if (!target) { result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "broken-link", issues: [issue("broken-link", "error", "Link target does not exist or cannot be resolved.")] }); continue }
-      if (vault.host !== config.host) { result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "invalid", targetPath: target, issues: [issue("cross-host-link", "error", `Agent host ${config.host} and Vault host ${vault.host} require an explicit adapter.`)] }); continue }
       if (inVault(vault, target, adapter)) {
         const targetSkill = findByCanonical(vault, target, adapter)
         if (targetSkill) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-link", targetPath: target, targetVaultRelativePath: targetSkill.relativePath, skillId: targetSkill.id, issues: entryIssues })
-        else result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "invalid", targetPath: target, issues: [issue("invalid-entry", "error", "Link points inside the Vault but not to a valid Skill directory.")] })
+        else {
+          // 索引未命中：按真相语义降级——目标目录的 SKILL.md 有效则为 repo-link，无效则整个条目判 invalid-skill。
+          const targetMetadata = await readDirectoryMetadata(adapter, target)
+          if (targetMetadata.issues.length) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "invalid", targetPath: target, issues: targetMetadata.issues })
+          else result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-link", targetPath: target, issues: entryIssues })
+        }
       } else result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "external-link", targetPath: target, issues: [issue("external-link", "warning", "Link points outside the configured Vault.")] })
       continue
     }

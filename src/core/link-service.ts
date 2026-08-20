@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process"
 import { constants } from "node:fs"
-import { access, lstat, readlink, readdir, realpath, stat, symlink, unlink } from "node:fs/promises"
+import { access, lstat, readlink, readdir, realpath, rename, rm, stat, symlink, unlink } from "node:fs/promises"
 import nodePath from "node:path"
-import { getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
+import { appendSafeChild, getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
 import { assertSafeWindowsPath, assertSafeWslPath } from "./link-plan.ts"
 import type {
   HostKind,
@@ -464,6 +464,53 @@ export async function executeDeleteLink(input: { host: HostKind; path: string })
   } catch (error) {
     return { schemaVersion: 1, attempted: true, success: false, spec, message: "链接删除失败", error: errorText(error) }
   }
+}
+
+/**
+ * 把 agent 目录下的实体拷贝转为链接（真相 convert_copy 语义）：
+ * 改名备份 -> 建链接 -> 验证 -> 删备份；任何一步失败都回滚恢复原目录。
+ */
+export async function convertCopyToLink(input: { host: HostKind; agentPath: string; name: string; targetPath: string }): Promise<LinkExecutionResult> {
+  const adapter = getHostPathAdapter(input.host)
+  let linkPath: string
+  let backupPath: string
+  try {
+    linkPath = appendSafeChild(adapter, adapter.normalize(input.agentPath), input.name)
+    backupPath = adapter.join(adapter.normalize(input.agentPath), `${input.name}.__conv__`)
+  } catch (error) {
+    return { schemaVersion: 1, attempted: false, success: false, spec: { targetHost: input.host, targetPath: input.targetPath, linkHost: input.host, linkPath: adapter.join(adapter.normalize(input.agentPath), input.name) }, message: "转换未执行", error: errorText(error) }
+  }
+  const spec: LinkSpec = { targetHost: input.host, targetPath: input.targetPath, linkHost: input.host, linkPath }
+  let runtimeLink: string
+  let runtimeBackup: string
+  try {
+    runtimeLink = runtimePath(input.host, linkPath)
+    runtimeBackup = runtimePath(input.host, backupPath)
+  } catch (error) {
+    return { schemaVersion: 1, attempted: false, success: false, spec, message: "转换未执行", error: errorText(error) }
+  }
+  const original = await lstat(runtimeLink).catch(function (): undefined { return undefined })
+  if (!original?.isDirectory()) {
+    return { schemaVersion: 1, attempted: false, success: false, spec, message: "转换未执行", error: "目标条目不是普通目录，不能转换" }
+  }
+  try {
+    await rename(runtimeLink, runtimeBackup)
+  } catch (error) {
+    return { schemaVersion: 1, attempted: false, success: false, spec, message: "转换未执行", error: `备份目录失败：${errorText(error)}` }
+  }
+  const created = await executeLink(spec)
+  if (!created.success) {
+    await rename(runtimeBackup, runtimeLink).catch(function (): void { /* 尽力回滚 */ })
+    return { ...created, message: "转换失败，已恢复原目录" }
+  }
+  const verified = await lstat(runtimeLink).catch(function (): undefined { return undefined })
+  if (!verified) {
+    await rm(runtimeLink, { recursive: true, force: true }).catch(function (): void {})
+    await rename(runtimeBackup, runtimeLink).catch(function (): void {})
+    return { schemaVersion: 1, attempted: true, success: false, spec, message: "转换失败（验证未通过，已回滚）" }
+  }
+  await rm(runtimeBackup, { recursive: true, force: true }).catch(function (): void {})
+  return { schemaVersion: 1, attempted: true, success: true, spec, message: "转换成功（原目录已备份验证后删除）" }
 }
 
 function logicalChildPath(host: HostKind, root: string, runtimeRoot: string, runtimeChild: string): string {

@@ -1,15 +1,20 @@
 import { createReadStream } from "node:fs"
-import { stat } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
 import {
+  appendSafeChild,
   buildComparison,
   buildPlanForAgent,
   configForWrite,
+  convertCopyToLink,
   DEFAULT_CONFIG_PATH,
   executeDeleteLink,
   executeLink,
+  findVaultSkillById,
+  getHostPathAdapter,
+  parseFrontmatter,
   preflightDeleteLink,
   preflightLink,
   readConfigOrFixture,
@@ -17,9 +22,11 @@ import {
   scanLinkDirectory,
   scanVault,
   scanWorkspace,
+  windowsPathToWsl,
   writeConfig,
   type AgentConfig,
   type HostKind,
+  type LinkRecord,
   type LinkSpec,
   type LoadedConfig,
   type SkillManagerConfig,
@@ -195,11 +202,12 @@ async function executeSyncOperation(operation: SyncPlanOperation, loaded: Loaded
   if (operation.action === "already-linked") {
     return { id: operation.id, skillId: operation.skillId, action: operation.action, success: true, attempted: false, message: "已存在，无需创建" }
   }
-  return { id: operation.id, skillId: operation.skillId, action: operation.action, success: false, attempted: false, message: "已阻止", ...(operation.risks.length ? { error: operation.risks.join("；") } : {}) }
+  // 冲突项：确认后跳过，不创建、不计失败（真相 skip_conflicts 语义）。
+  return { id: operation.id, skillId: operation.skillId, action: operation.action, success: true, attempted: false, message: "已跳过（冲突项不创建）" }
 }
 
 function executionState(operation: SyncPlanOperation, result: SyncResult | undefined): SyncPlanOperation["execution"] {
-  if (operation.action === "already-linked") return "skipped"
+  if (operation.action === "already-linked" || operation.action === "blocked") return "skipped"
   return result?.success ? "completed" : "failed"
 }
 
@@ -236,6 +244,19 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
   const plan = buildPlanForAgent({ config: loaded, vault: snapshot.vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   const results: SyncResult[] = []
   for (const operation of plan.operations) results.push(await executeSyncOperation(operation, loaded, agentConfig))
+  // 链接记录：创建成功的操作写入来源集合（真相 LinkRecord 语义，flattening 不丢 provenance）。
+  const nextLinks = [...(loaded.links ?? [])]
+  plan.operations.forEach(function (operation, index): void {
+    const result = results[index]
+    if (!result?.success || operation.action !== "create-link") return
+    const skill = snapshot.vault.skills.find(function (item): boolean { return item.id === operation.skillId })
+    if (!skill) return
+    const record: LinkRecord = { skill: skill.id, collection: skill.collection, agentId: agentConfig.id }
+    if (!nextLinks.some(function (item): boolean { return item.agentId === record.agentId && item.skill === record.skill })) nextLinks.push(record)
+  })
+  if (nextLinks.length !== (loaded.links ?? []).length) {
+    await writeConfig(configPath, configForWrite({ ...loaded, links: nextLinks }))
+  }
   const refreshedAgent = await scanAgent(agentConfig, snapshot.vault)
   const refreshedComparison = buildComparison(snapshot.vault, refreshedAgent)
   sendJson(response, 200, {
@@ -263,6 +284,88 @@ async function handlePlan(request: IncomingMessage, response: ServerResponse): P
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, plan, execution: "not-run" })
 }
 
+async function handleAgentLinkConvert(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = objectBody(await readBody(request))
+  if (typeof body.agentId !== "string" || typeof body.name !== "string") throw new Error("agentId and name are required")
+  const loaded = await loadConfig()
+  const agentConfig = loaded.agents.find(function (agent): boolean { return agent.id === body.agentId })
+  if (!agentConfig) {
+    sendJson(response, 404, errorJson("agent not found", "not-found"))
+    return
+  }
+  const name = body.name.trim()
+  const adapter = getHostPathAdapter(agentConfig.host)
+  let directory: string
+  try {
+    directory = appendSafeChild(adapter, adapter.normalize(agentConfig.path), name)
+  } catch (error) {
+    sendJson(response, 400, errorJson(error instanceof Error ? error.message : String(error), "unsafe-name"))
+    return
+  }
+  const runtimeDirectory = agentConfig.host === "windows" ? windowsPathToWsl(directory) ?? directory : directory
+  // 真相守卫：目录名与 SKILL.md 的 name 必须一致，否则不能转换。
+  const frontmatter = parseFrontmatter(await readFile(adapter.join(runtimeDirectory, "SKILL.md"), "utf8").catch(function (): string { return "" }))
+  if (!frontmatter.name || frontmatter.name !== name) {
+    sendJson(response, 400, errorJson(`无效 skill：目录名与 SKILL.md 的 name 不一致，不能转换。`, "invalid-skill"))
+    return
+  }
+  const vault = await scanVault(loaded.vault)
+  const skill = findVaultSkillById(vault, name)
+  if (!skill) {
+    sendJson(response, 400, errorJson(`无法识别 ${name} 的来源，不能转换（它不在 vault 中）。`, "not-in-vault"))
+    return
+  }
+  const result = await convertCopyToLink({ host: agentConfig.host, agentPath: agentConfig.path, name, targetPath: skill.absolutePath })
+  let links: LinkRecord[] | undefined
+  if (result.success) {
+    const nextLinks = [...(loaded.links ?? [])]
+    const record: LinkRecord = { skill: name, collection: skill.collection, agentId: agentConfig.id }
+    if (!nextLinks.some(function (item): boolean { return item.agentId === record.agentId && item.skill === record.skill })) nextLinks.push(record)
+    await writeConfig(configPath, configForWrite({ ...loaded, links: nextLinks }))
+    links = nextLinks
+  }
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, result, ...(links ? { links } : {}) })
+}
+
+async function handleAgentLinkDelete(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = objectBody(await readBody(request))
+  if (typeof body.agentId !== "string" || typeof body.skill !== "string") throw new Error("agentId and skill are required")
+  const loaded = await loadConfig()
+  const agentConfig = loaded.agents.find(function (agent): boolean { return agent.id === body.agentId })
+  if (!agentConfig) {
+    sendJson(response, 404, errorJson("agent not found", "not-found"))
+    return
+  }
+  const skill = body.skill.trim()
+  const adapter = getHostPathAdapter(agentConfig.host)
+  let linkPath: string
+  try {
+    linkPath = appendSafeChild(adapter, adapter.normalize(agentConfig.path), skill)
+  } catch (error) {
+    sendJson(response, 400, errorJson(error instanceof Error ? error.message : String(error), "unsafe-name"))
+    return
+  }
+  const input = { host: agentConfig.host, path: linkPath }
+  const preflight = await preflightDeleteLink(input)
+  // 真相守卫：非断链时，目标必须是有效 skill（目录名与 SKILL.md 的 name 一致），否则拒绝删除。
+  if (preflight.ready && preflight.targetStatus === "exists" && preflight.targetPath) {
+    const runtimeTarget = agentConfig.host === "windows" ? windowsPathToWsl(preflight.targetPath) ?? preflight.targetPath : preflight.targetPath
+    const targetFrontmatter = parseFrontmatter(await readFile(adapter.join(runtimeTarget, "SKILL.md"), "utf8").catch(function (): string { return "" }))
+    if (!targetFrontmatter.name || targetFrontmatter.name !== adapter.basename(preflight.targetPath)) {
+      sendJson(response, 400, errorJson(`无效 skill，不能删除链接。`, "invalid-skill"))
+      return
+    }
+  }
+  const result = preflight.ready ? await executeDeleteLink(input) : undefined
+  let links: LinkRecord[] | undefined
+  if (result?.success) {
+    const nextLinks = (loaded.links ?? []).filter(function (item): boolean { return !(item.agentId === agentConfig.id && item.skill === skill) })
+    await writeConfig(configPath, configForWrite({ ...loaded, links: nextLinks }))
+    links = nextLinks
+  }
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, preflight, ...(result ? { result } : {}), ...(links ? { links } : {}) })
+}
+
 async function handleApi(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const method = request.method ?? "GET"
   if (method === "OPTIONS") {
@@ -283,6 +386,8 @@ async function handleApi(request: IncomingMessage, response: ServerResponse, url
     if (url.pathname === "/api/links/create" && method === "POST") return await handleLinkCreate(request, response)
     if (url.pathname === "/api/links/delete" && method === "POST") return await handleLinkDelete(request, response)
     if (url.pathname === "/api/links/scan" && method === "POST") return await handleLinkScan(request, response)
+    if (url.pathname === "/api/agent-links/convert" && method === "POST") return await handleAgentLinkConvert(request, response)
+    if (url.pathname === "/api/agent-links/delete" && method === "POST") return await handleAgentLinkDelete(request, response)
     if (url.pathname === "/api/sync" && method === "POST") return await handleSync(request, response)
     if (url.pathname === "/api/plan" && method === "POST") return await handlePlan(request, response)
     sendJson(response, 404, errorJson("API route not found", "not-found"))

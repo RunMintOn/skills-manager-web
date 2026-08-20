@@ -84,7 +84,7 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 ## 安全边界与范围
 
 - Vault 是只读源；扫描不会跟随链接目录，不会执行 YAML 或 shell。
-- 目录名必须与 frontmatter `name` 精确匹配；重复 Skill ID、无效元数据和六类 Agent 条目都会保留并标风险。
+- 扫描无条件递归（隐藏目录如 `.agents/` 也扫描，仅跳过 node_modules）；目录名与 frontmatter `name` 不一致为警告、不阻塞同步；frontmatter 缺失/损坏、重复 Skill ID 才判无效并阻止同步。
 - 创建链接前会检查目标存在、链接路径不存在、父目录可用，并拒绝覆盖普通文件或目录。
 - 删除链接只接受已识别的符号链接或 Junction，使用不跟随目标的删除操作。
 - Skill 同步只创建缺失的扁平链接，不复制 Vault 内容，不覆盖冲突 Agent 条目。

@@ -2,7 +2,7 @@ import { constants } from "node:fs"
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
-import type { AgentConfig, CommonPath, HostKind, LoadedConfig, SkillManagerConfig } from "./types.ts"
+import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
 export const DEFAULT_CONFIG_PATH = nodePath.join(PROJECT_ROOT, "data", "config.json")
@@ -17,6 +17,7 @@ export function createFixtureConfig(): SkillManagerConfig {
     vault: { path: fixturePath("vault"), host: "wsl" },
     agents: [{ id: "fixture-agent", name: "Fixture Agent", host: "wsl", path: fixturePath("agents/default") }],
     commonPaths: [],
+    links: [],
     selectedAgentId: "fixture-agent",
   }
 }
@@ -75,6 +76,23 @@ export function validateConfig(input: unknown): SkillManagerConfig {
     ? value.commonPaths.map(function (item: unknown, index: number): CommonPath { return validateCommonPath(item, index, commonIds) })
     : []
 
+  const links = Array.isArray(value.links)
+    ? value.links.map(function (item: unknown, index: number): LinkRecord {
+        if (!item || typeof item !== "object") throw new Error(`links[${index}] must be an object`)
+        const record = item as Partial<LinkRecord>
+        nonEmpty(record.skill, `links[${index}].skill`)
+        nonEmpty(record.agentId, `links[${index}].agentId`)
+        if (typeof record.collection !== "string") throw new Error(`links[${index}].collection must be a string`)
+        return { skill: record.skill.trim(), collection: record.collection, agentId: record.agentId.trim() }
+      })
+    : []
+
+  let lastScanPath: string | undefined
+  if (value.lastScanPath !== undefined) {
+    if (typeof value.lastScanPath !== "string") throw new Error("lastScanPath must be a string")
+    lastScanPath = value.lastScanPath.trim() || undefined
+  }
+
   let selectedAgentId: string | undefined
   if (value.selectedAgentId !== undefined) {
     nonEmpty(value.selectedAgentId, "selectedAgentId")
@@ -86,6 +104,8 @@ export function validateConfig(input: unknown): SkillManagerConfig {
     vault: { path: value.vault.path.trim(), host: value.vault.host },
     agents,
     commonPaths,
+    links,
+    ...(lastScanPath ? { lastScanPath } : {}),
     ...(selectedAgentId ? { selectedAgentId } : {}),
   }
 }
@@ -154,6 +174,8 @@ export function configForWrite(config: LoadedConfig): SkillManagerConfig {
     vault: { ...config.vault },
     agents: config.agents.map(function (agent): AgentConfig { return { ...agent } }),
     commonPaths: (config.commonPaths ?? []).map(function (item): CommonPath { return { ...item } }),
+    links: (config.links ?? []).map(function (item): LinkRecord { return { ...item } }),
+    ...(config.lastScanPath ? { lastScanPath: config.lastScanPath } : {}),
     ...(config.selectedAgentId ? { selectedAgentId: config.selectedAgentId } : {}),
   }
 }

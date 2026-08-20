@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentScan, ComparisonResult, HostKind, LinkDeletePreflight, LinkExecutionResult, LinkPreflight, LinkScan, LinkSpec, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
+import type { AgentConfig, AgentScan, ComparisonResult, HostKind, LinkDeletePreflight, LinkExecutionResult, LinkPreflight, LinkRecord, LinkScan, LinkSpec, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
 
 const API_PORT = import.meta.env.VITE_API_PORT || "8787"
 const API_ROOT = `http://${window.location.hostname || "127.0.0.1"}:${API_PORT}/api`
@@ -28,6 +28,12 @@ export interface LinkPreflightResponse { schemaVersion: 1; preflight: LinkPrefli
 export interface LinkCreateResponse { schemaVersion: 1; result: LinkExecutionResult; preflight: LinkPreflight }
 export interface LinkDeleteResponse { schemaVersion: 1; preflight: LinkDeletePreflight; result?: LinkExecutionResult }
 export interface LinkScanResponse { schemaVersion: 1; scan: LinkScan }
+export interface AgentLinkResponse {
+  schemaVersion: 1
+  result: LinkExecutionResult
+  preflight?: LinkDeletePreflight
+  links?: LinkRecord[]
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } })
@@ -61,5 +67,11 @@ function deleteLink(host: HostKind, path: string): Promise<LinkDeleteResponse> {
 function scanLinks(host: HostKind, path: string, recursive: boolean): Promise<LinkScanResponse> {
   return request<LinkScanResponse>("/links/scan", { method: "POST", body: JSON.stringify({ host, path, recursive }) })
 }
+function convertAgentLink(agentId: string, name: string): Promise<AgentLinkResponse> {
+  return request<AgentLinkResponse>("/agent-links/convert", { method: "POST", body: JSON.stringify({ agentId, name }) })
+}
+function deleteAgentLink(agentId: string, skill: string): Promise<AgentLinkResponse> {
+  return request<AgentLinkResponse>("/agent-links/delete", { method: "POST", body: JSON.stringify({ agentId, skill }) })
+}
 
-export const api = { init, vault, config, putConfig, agent, plan, executeSync, linkPreflight, createLink, deleteLink, scanLinks }
+export const api = { init, vault, config, putConfig, agent, plan, executeSync, linkPreflight, createLink, deleteLink, scanLinks, convertAgentLink, deleteAgentLink }

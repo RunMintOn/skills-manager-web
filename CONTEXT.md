@@ -33,9 +33,9 @@
 
 **Vault（中央仓库）**：只读。绝不修改其内容。
 
-**Collection**：Vault 内包含 SKILL.md 子目录的目录（任意深度递归识别）。Skill 按 Vault 相对路径第一段归组；Vault 根下的 Skill 归为 **Loose Skills**。
+**Collection**：Vault 内包含 SKILL.md 子目录的目录（任意深度递归识别，含隐藏目录如 `.agents/`；仅跳过 `node_modules`）。Skill 按 Vault 相对路径第一段归组；Vault 根下的 Skill 归为 **Loose Skills**。
 
-**Skill Directory**：SKILL.md 的直接父目录，最小管理单元。有效条件：目录名与 frontmatter `name` 精确一致（含大小写）。
+**Skill Directory**：SKILL.md 的直接父目录，最小管理单元。有效性分级：error 级问题（frontmatter 缺失/损坏、name 缺失、重复 ID、不可读）判为无效并不可同步；warning 级（目录名与 name 不一致，如 `name@作者` 命名惯例）不阻塞同步，仍可链接。
 
 **Agent Path**：消费者加载 Skill 的目录。每个 Agent 有 id、显示名、host、实际路径。
 

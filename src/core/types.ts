@@ -21,11 +21,15 @@ export type ComparisonState =
 export interface VaultConfig { path: string; host: HostKind }
 export interface AgentConfig { id: string; name: string; host: HostKind; path: string }
 export interface CommonPath { id: string; name: string; host: HostKind; path: string }
+/** 链接记录：skill -> agent（按 agentId 关联）。来源集合只存在应用配置里，文件系统上不可见（真相语义）。 */
+export interface LinkRecord { skill: string; collection: string; agentId: string }
 export interface SkillManagerConfig {
   schemaVersion: 1
   vault: VaultConfig
   agents: AgentConfig[]
   commonPaths?: CommonPath[]
+  links?: LinkRecord[]
+  lastScanPath?: string
   selectedAgentId?: string
 }
 export interface LoadedConfig extends SkillManagerConfig { configPath: string; exists: boolean }
@@ -81,6 +85,9 @@ export interface VaultScanSummary {
   invalid: number
   collections: number
   duplicateIds: number
+  errors: number
+  warnings: number
+  ignoredDirs: number
   issueCount: number
 }
 export interface VaultScan {

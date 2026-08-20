@@ -202,6 +202,10 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
   const commonPaths = config.commonPaths ?? []
   const scanEntries = scan?.entries ?? []
 
+  useEffect(function restoreLastScanPath(): void {
+    if (config.lastScanPath && !scanPath) setScanPath(config.lastScanPath)
+  }, [config.lastScanPath])
+
   useEffect(function registerEscapeHandler(): () => void {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape" && commonEditor) setCommonEditor(null)
@@ -237,6 +241,11 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
       setScan(response.scan)
       setSelectedEntry(null)
       if (response.scan.issues.length) onError(response.scan.issues.join("；"))
+      // 记住上次扫描路径（真相 last_scan_path 语义）。
+      if (config.lastScanPath !== path) {
+        await api.putConfig({ ...config, lastScanPath: path })
+        onConfigChange({ ...config, lastScanPath: path })
+      }
     } catch (error) {
       onError(displayError(error))
     } finally {
