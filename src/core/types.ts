@@ -121,7 +121,8 @@ export interface AgentEntry {
   kind: AgentEntryKind
   targetPath?: string
   targetVaultRelativePath?: string
-  skillId?: string
+  /** 对应 Vault Skill 的身份键（skill.relativePath，全局唯一；同名 skill 可分别指向）。 */
+  skillKey?: string
   frontmatter?: Frontmatter
   issues: AgentEntryIssue[]
 }
@@ -149,7 +150,7 @@ export interface AgentScan {
 }
 
 export interface ComparisonRow {
-  skillId: string
+  skillKey: string
   skillPath: string
   collection: string
   state: ComparisonState
@@ -266,7 +267,8 @@ export interface LinkScan {
 export type PlanAction = "create-link" | "already-linked" | "blocked"
 export interface SyncPlanOperation {
   id: string
-  skillId: string
+  /** 身份键 = Vault Skill 的 relativePath（唯一）。 */
+  skillKey: string
   skillPath?: string
   agentId: string
   action: PlanAction

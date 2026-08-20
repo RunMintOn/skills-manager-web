@@ -16,7 +16,7 @@ type Props = {
   filteredSkills: VaultSkill[]
   groups: SkillGroup[]
   actualGroups: ActualGroup[]
-  selectedSkillId: string | null
+  selectedSkillKey: string | null
   selectedIds: string[]
   actualSelectedPath: string | null
   collapsedGroups: Set<string>
@@ -53,7 +53,7 @@ function stateClass(value: string): string {
 }
 
 function entryForSkill(entries: AgentEntry[], skill: VaultSkill): AgentEntry | undefined {
-  return entries.find((entry) => entry.skillId === skill.id || (!entry.skillId && entry.name === skill.directoryName))
+  return entries.find((entry) => entry.skillKey === skill.relativePath || (!entry.skillKey && entry.name === skill.directoryName))
 }
 
 function focusMatrixRow(current: HTMLElement, delta: number): void {
@@ -76,7 +76,7 @@ function matrixActualPath(entry: AgentEntry): string {
 }
 
 function selectionState(skills: VaultSkill[], selectedIds: string[]): { checked: boolean; partial: boolean; validIds: string[] } {
-  const validIds = skills.filter((skill) => skill.validity === "valid").map((skill) => skill.id)
+  const validIds = skills.filter((skill) => skill.validity === "valid").map((skill) => skill.relativePath)
   const selectedCount = validIds.filter((id) => selectedIds.includes(id)).length
   return { checked: validIds.length > 0 && selectedCount === validIds.length, partial: selectedCount > 0 && selectedCount < validIds.length, validIds }
 }
@@ -85,7 +85,7 @@ function MatrixDash(): ReactElement {
   return <span className="matrix-dash">—</span>
 }
 
-export function SkillMatrix({ view, loading, vault, agent, comparison, config, selectedAgentId, filteredSkills, groups, actualGroups, selectedSkillId, selectedIds, actualSelectedPath, collapsedGroups, onToggleGroup, onSelectSkill, onSelectActual, onToggleSelected, onToggleCollection }: Props): ReactElement {
+export function SkillMatrix({ view, loading, vault, agent, comparison, config, selectedAgentId, filteredSkills, groups, actualGroups, selectedSkillKey, selectedIds, actualSelectedPath, collapsedGroups, onToggleGroup, onSelectSkill, onSelectActual, onToggleSelected, onToggleCollection }: Props): ReactElement {
   const selectedAgent = config.agents.find((item) => item.id === selectedAgentId)
   const totalSkills = view === "actual" ? actualGroups.reduce((sum, [, entries]) => sum + entries.length, 0) : vault?.summary.total ?? filteredSkills.length
   const totalGroups = view === "actual" ? actualGroups.length : vault?.summary.collections ?? groups.length
@@ -121,15 +121,15 @@ export function SkillMatrix({ view, loading, vault, agent, comparison, config, s
             <div className="matrix-skill-cell matrix-group-skill-cell"><>{view === "compare" ? <input aria-label={`选择集合 ${collection}`} type="checkbox" checked={selection.checked} disabled={!selection.validIds.length} ref={(input) => { if (input) input.indeterminate = selection.partial }} onChange={(event) => { event.stopPropagation(); onToggleCollection(skills) }} onClick={(event) => event.stopPropagation()} /> : <span className="matrix-select-spacer" />}</><span className="matrix-toggle">{collapsed ? "›" : "⌄"}</span><span className="matrix-folder">▱</span><b>{collection}</b><small className="matrix-count">{skills.length}</small><small className="matrix-path">{matrixCollectionPath(collection)}</small></div><MatrixDash /><MatrixDash /><MatrixDash /><MatrixDash /><MatrixDash />
           </div>
           {!collapsed && skills.map((skill) => {
-            const row = comparison?.rows.find((item) => item.skillId === skill.id)
+            const row = comparison?.rows.find((item) => item.skillKey === skill.relativePath)
             const status = view === "repository" ? (skill.validity === "valid" ? "valid" : "invalid") : row?.state ?? (skill.validity === "invalid" ? "invalid" : "pending")
             const canSelect = skill.validity === "valid"
             const hasError = skill.issues.some((issue) => issue.severity === "error")
             const warningCount = skill.issues.filter((issue) => issue.severity === "warning").length
             const entry = agent ? entryForSkill(agent.entries, skill) : undefined
             const source = entry ? (entry.kind === "repo-link" ? "已同步" : kindLabels[entry.kind] ?? entry.kind) : "—"
-            return <div role="button" tabIndex={0} data-matrix-row className={`${selectedSkillId === skill.id ? "matrix-row selected" : "matrix-row"}${selectedIds.includes(skill.id) ? " checked-row" : ""}`} key={`${skill.relativePath}:${skill.id}`} onClick={() => onSelectSkill(skill.id)} onKeyDown={(event) => { if (event.key === "Enter") onSelectSkill(skill.id); if (event.key === " " && view === "compare") { event.preventDefault(); if (canSelect) onToggleSelected(skill.id) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusMatrixRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}>
-              <div className="matrix-skill-cell"><>{view === "compare" ? <input aria-label={`选择 ${skill.id}`} disabled={!canSelect} type="checkbox" checked={selectedIds.includes(skill.id)} onChange={(event) => { event.stopPropagation(); onToggleSelected(skill.id) }} onClick={(event) => event.stopPropagation()} /> : <span className="matrix-select-spacer" />}</><span className="matrix-branch" /><span className={hasError ? "matrix-dot invalid" : warningCount ? "matrix-dot warn" : "matrix-dot"} /><b>{skill.id}</b><small className="matrix-path">{matrixSkillPath(skill)}</small></div><span className={stateClass(status)}>{stateLabels[status] ?? status}</span><span className="matrix-cell matrix-source">{source}</span><span className="matrix-cell">{hasError ? <span className="matrix-error">⚠ 无效</span> : warningCount ? <span className="matrix-warn">⚠ {warningCount} 警告</span> : <span className="matrix-check">✓ 有效</span>}</span><span className="matrix-cell matrix-link">{entry?.kind === "repo-link" ? <span className="matrix-check">✓</span> : <MatrixDash />}</span><span className="matrix-actions" aria-hidden="true">↗　•••</span>
+            return <div role="button" tabIndex={0} data-matrix-row className={`${selectedSkillKey === skill.relativePath ? "matrix-row selected" : "matrix-row"}${selectedIds.includes(skill.relativePath) ? " checked-row" : ""}`} key={`${skill.relativePath}:${skill.id}`} onClick={() => onSelectSkill(skill.relativePath)} onKeyDown={(event) => { if (event.key === "Enter") onSelectSkill(skill.relativePath); if (event.key === " " && view === "compare") { event.preventDefault(); if (canSelect) onToggleSelected(skill.relativePath) }; if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusMatrixRow(event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }}>
+              <div className="matrix-skill-cell"><>{view === "compare" ? <input aria-label={`选择 ${skill.id}`} disabled={!canSelect} type="checkbox" checked={selectedIds.includes(skill.relativePath)} onChange={(event) => { event.stopPropagation(); onToggleSelected(skill.relativePath) }} onClick={(event) => event.stopPropagation()} /> : <span className="matrix-select-spacer" />}</><span className="matrix-branch" /><span className={hasError ? "matrix-dot invalid" : warningCount ? "matrix-dot warn" : "matrix-dot"} /><b>{skill.id}</b><small className="matrix-path">{matrixSkillPath(skill)}</small></div><span className={stateClass(status)}>{stateLabels[status] ?? status}</span><span className="matrix-cell matrix-source">{source}</span><span className="matrix-cell">{hasError ? <span className="matrix-error">⚠ 无效</span> : warningCount ? <span className="matrix-warn">⚠ {warningCount} 警告</span> : <span className="matrix-check">✓ 有效</span>}</span><span className="matrix-cell matrix-link">{entry?.kind === "repo-link" ? <span className="matrix-check">✓</span> : <MatrixDash />}</span><span className="matrix-actions" aria-hidden="true">↗　•••</span>
             </div>
           })}
         </div>

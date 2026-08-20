@@ -40,7 +40,7 @@ export async function scanAgent(config: AgentConfig, vault: VaultScan): Promise<
       if (!target) { result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "broken-link", issues: [issue("broken-link", "error", "Link target does not exist or cannot be resolved.")] }); continue }
       if (inVault(vault, target, adapter)) {
         const targetSkill = findByCanonical(vault, target, adapter)
-        if (targetSkill) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-link", targetPath: target, targetVaultRelativePath: targetSkill.relativePath, skillId: targetSkill.id, issues: entryIssues })
+        if (targetSkill) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-link", targetPath: target, skillKey: targetSkill.relativePath, issues: entryIssues })
         else {
           // 索引未命中：按真相语义降级——目标目录的 SKILL.md 有效则为 repo-link，无效则整个条目判 invalid-skill。
           const targetMetadata = await readDirectoryMetadata(adapter, target)
@@ -54,14 +54,14 @@ export async function scanAgent(config: AgentConfig, vault: VaultScan): Promise<
       const metadata = await readDirectoryMetadata(adapter, path); entryIssues.push(...metadata.issues)
       if (entryIssues.length) { result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "invalid", frontmatter: metadata.frontmatter, issues: entryIssues }); continue }
       const targetSkill = metadata.frontmatter?.name ? findVaultSkillById(vault, metadata.frontmatter.name) : undefined
-      if (targetSkill) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-copy", skillId: targetSkill.id, targetVaultRelativePath: targetSkill.relativePath, frontmatter: metadata.frontmatter, issues: [issue("local-directory", "warning", "A real directory contains metadata for a Vault Skill but is not a link.")] })
+      if (targetSkill) result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "repo-copy", skillKey: targetSkill.relativePath, frontmatter: metadata.frontmatter, issues: [issue("local-directory", "warning", "A real directory contains metadata for a Vault Skill but is not a link.")] })
       else result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "local-dir", frontmatter: metadata.frontmatter, issues: [issue("local-directory", "warning", "A real local directory is not a Vault link.")] })
       continue
     }
     result.entries.push({ ...baseEntry(adapter, root, item.name, path), kind: "invalid", issues: [issue("invalid-entry", "error", "Agent entry is neither a directory nor a link.")] })
   }
-  const bySkill = new Map<string, AgentEntry[]>(); for (const entry of result.entries) if (entry.skillId) bySkill.set(entry.skillId, [...(bySkill.get(entry.skillId) ?? []), entry])
-  for (const [skillId, group] of bySkill) if (group.length > 1) { const duplicate = issue("duplicate-skill-entry", "warning", `Agent contains ${group.length} entries for Skill ID \"${skillId}\".`); result.issues.push(duplicate); for (const entry of group) entry.issues.push(duplicate) }
+  const bySkill = new Map<string, AgentEntry[]>(); for (const entry of result.entries) if (entry.skillKey) bySkill.set(entry.skillKey, [...(bySkill.get(entry.skillKey) ?? []), entry])
+  for (const [skillKey, group] of bySkill) if (group.length > 1) { const duplicate = issue("duplicate-skill-entry", "warning", `Agent contains ${group.length} entries for Skill key \"${skillKey}\".`); result.issues.push(duplicate); for (const entry of group) entry.issues.push(duplicate) }
   result.entries.sort((a, b) => compare(a.relativePath, b.relativePath)); result.summary = { total: result.entries.length, repoLinks: result.entries.filter((e) => e.kind === "repo-link").length, repoCopies: result.entries.filter((e) => e.kind === "repo-copy").length, localDirs: result.entries.filter((e) => e.kind === "local-dir").length, externalLinks: result.entries.filter((e) => e.kind === "external-link").length, brokenLinks: result.entries.filter((e) => e.kind === "broken-link").length, invalid: result.entries.filter((e) => e.kind === "invalid").length, issueCount: result.issues.length + result.entries.reduce((sum, e) => sum + e.issues.length, 0) }
   return result
 }

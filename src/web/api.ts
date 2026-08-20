@@ -20,7 +20,7 @@ export interface SyncResponse {
   schemaVersion: 1
   execution: "completed" | "failed"
   plan: SyncPlan
-  results: Array<{ id: string; skillId: string; action: string; success: boolean; attempted: boolean; message: string; error?: string }>
+  results: Array<{ id: string; skillKey: string; action: string; success: boolean; attempted: boolean; message: string; error?: string }>
   agent: AgentScan
   comparison: ComparisonResult
 }

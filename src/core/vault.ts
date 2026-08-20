@@ -74,5 +74,7 @@ export async function scanVault(config: VaultConfig): Promise<VaultScan> {
 }
 export function findVaultSkillById(vault: VaultScan, id: string): VaultSkill | undefined { return vault.skills.find((skill) => skill.id === id && skill.validity === "valid") }
 export function findVaultSkillCandidates(vault: VaultScan, id: string): VaultSkill[] { return vault.skills.filter((skill) => skill.id === id && skill.validity === "valid") }
+/** 按身份键（relativePath，全局唯一）查找；同名 skill 也能精确命中各自目录。 */
+export function findVaultSkillByKey(vault: VaultScan, key: string): VaultSkill | undefined { return vault.skills.find((skill) => skill.relativePath === key && skill.validity === "valid") }
 export function findVaultSkillByPath(vault: VaultScan, canonicalPath: string): VaultSkill | undefined { return vault.skills.find((skill) => skill.validity === "valid" && skill.canonicalPath === canonicalPath) }
 export function vaultContainsPath(vault: VaultScan, candidate: string): boolean { const adapter = getHostPathAdapter(vault.host); return Boolean(vault.canonicalPath && isInside(adapter, vault.canonicalPath, candidate)) }

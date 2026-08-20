@@ -44,7 +44,7 @@ const JSON_SCHEMA = 1
 type JsonValue = Record<string, unknown> | unknown[]
 type SyncResult = {
   id: string
-  skillId: string
+  skillKey: string
   action: string
   success: boolean
   attempted: boolean
@@ -197,13 +197,13 @@ async function handleLinkScan(request: IncomingMessage, response: ServerResponse
 async function executeSyncOperation(operation: SyncPlanOperation, loaded: LoadedConfig, agentConfig: AgentConfig): Promise<SyncResult> {
   if (operation.action === "create-link" && operation.targetPath && operation.linkPath) {
     const result = await executeLink({ targetHost: loaded.vault.host, targetPath: operation.targetPath, linkHost: agentConfig.host, linkPath: operation.linkPath })
-    return { id: operation.id, skillId: operation.skillId, action: operation.action, success: result.success, attempted: result.attempted, message: result.message, ...(result.error ? { error: result.error } : {}) }
+    return { id: operation.id, skillKey: operation.skillKey, action: operation.action, success: result.success, attempted: result.attempted, message: result.message, ...(result.error ? { error: result.error } : {}) }
   }
   if (operation.action === "already-linked") {
-    return { id: operation.id, skillId: operation.skillId, action: operation.action, success: true, attempted: false, message: "已存在，无需创建" }
+    return { id: operation.id, skillKey: operation.skillKey, action: operation.action, success: true, attempted: false, message: "已存在，无需创建" }
   }
   // 冲突项：确认后跳过，不创建、不计失败（真相 skip_conflicts 语义）。
-  return { id: operation.id, skillId: operation.skillId, action: operation.action, success: true, attempted: false, message: "已跳过（冲突项不创建）" }
+  return { id: operation.id, skillKey: operation.skillKey, action: operation.action, success: true, attempted: false, message: "已跳过（冲突项不创建）" }
 }
 
 function executionState(operation: SyncPlanOperation, result: SyncResult | undefined): SyncPlanOperation["execution"] {
@@ -240,7 +240,7 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.id })
+  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
   const plan = buildPlanForAgent({ config: loaded, vault: snapshot.vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   const results: SyncResult[] = []
   for (const operation of plan.operations) results.push(await executeSyncOperation(operation, loaded, agentConfig))
@@ -249,9 +249,9 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
   plan.operations.forEach(function (operation, index): void {
     const result = results[index]
     if (!result?.success || operation.action !== "create-link") return
-    const skill = snapshot.vault.skills.find(function (item): boolean { return item.id === operation.skillId })
+    const skill = snapshot.vault.skills.find(function (item): boolean { return item.relativePath === operation.skillKey })
     if (!skill) return
-    const record: LinkRecord = { skill: skill.id, collection: skill.collection, agentId: agentConfig.id }
+    const record: LinkRecord = { skill: skill.relativePath, collection: skill.collection, agentId: agentConfig.id }
     if (!nextLinks.some(function (item): boolean { return item.agentId === record.agentId && item.skill === record.skill })) nextLinks.push(record)
   })
   if (nextLinks.length !== (loaded.links ?? []).length) {
@@ -279,7 +279,7 @@ async function handlePlan(request: IncomingMessage, response: ServerResponse): P
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.id })
+  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
   const plan = buildPlanForAgent({ config: loaded, vault: snapshot.vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, plan, execution: "not-run" })
 }

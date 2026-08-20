@@ -81,7 +81,7 @@ describe("fixture Vault and Agent scans", () => {
     const agent = await scanAgent({ id: "fixture-agent", name: "Fixture Agent", host: "wsl", path: fixturePath("agents/default") }, vault)
     expect(agent.summary).toMatchObject({ total: 8, repoLinks: 1, repoCopies: 1, localDirs: 1, externalLinks: 1, brokenLinks: 1, invalid: 3 })
     expect(new Set(agent.entries.map((entry) => entry.kind))).toEqual(new Set(["repo-link", "repo-copy", "local-dir", "external-link", "broken-link", "invalid"]))
-    expect(agent.entries.find((entry) => entry.name === "code-review")?.skillId).toBe("code-review")
+    expect(agent.entries.find((entry) => entry.name === "code-review")?.skillKey).toBe("engineering/code-review")
     expect(agent.entries.find((entry) => entry.name === "lint-helper")?.kind).toBe("repo-copy")
     expect(agent.entries.find((entry) => entry.name === "lint-helper-copy")?.kind).toBe("invalid")
   })
@@ -95,17 +95,17 @@ describe("comparison and preview plan", () => {
     const comparison = buildComparison(vault, agent)
     expect(comparison.summary).toMatchObject({ linked: 1, "local-dir": 1, pending: 1, invalid: 4 })
     expect(comparison.actualOnly.length).toBeGreaterThanOrEqual(4)
-    expect(comparison.rows.find((row) => row.skillId === "unicode-helper")?.state).toBe("pending")
+    expect(comparison.rows.find((row) => row.skillKey === "unicode-helper")?.state).toBe("pending")
   })
 
   it("produces typed, not-run operations and never mutates the filesystem", async () => {
     const vault = await scanVault({ path: fixturePath("vault"), host: "wsl" })
     const config = createFixtureConfig(); const agent = await scanAgent(config.agents[0]!, vault)
     const before = await readFile(nodePath.join(fixturePath("agents/default"), "local-notes/README.md"), "utf8")
-    const plan = buildPlanForAgent({ config, vault, agent, selectedSkillIds: ["unicode-helper", "code-review", "lint-helper", "missing-id"] })
+    const plan = buildPlanForAgent({ config, vault, agent, selectedSkillIds: ["unicode-helper", "engineering/code-review", "engineering/tools/lint-helper", "missing-key"] })
     expect(plan.mode).toBe("preview-only"); expect(plan.safety.filesystemWrites).toBe("disabled")
     expect(plan.operations.map((item) => item.action)).toEqual(["already-linked", "blocked", "blocked", "create-link"])
-    const create = plan.operations.find((item) => item.skillId === "unicode-helper")!
+    const create = plan.operations.find((item) => item.skillKey === "unicode-helper")!
     expect(create.execution).toBe("not-run"); expect(create.link?.kind).toBe("wsl-command"); expect((create.link as { shell: false }).shell).toBe(false)
     expect((create.link as { args: string[] }).args).not.toContain("&&")
     expect(await readFile(nodePath.join(fixturePath("agents/default"), "local-notes/README.md"), "utf8")).toBe(before)
