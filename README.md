@@ -15,13 +15,12 @@ npm run server
 npm run dev
 # 浏览器打开 http://127.0.0.1:5173
 
-# 生产首帧：先 build，再启动 Node 服务
-npm run build
+# 生产首帧：自动构建并启动 Node 服务
 npm start
 # 浏览器打开 http://127.0.0.1:8787
 ```
 
-`start.bat` / `start.vbs` 是 Windows 入口素材：它们通过 `wsl.exe` 在 WSL 原生项目目录启动 Node 服务，并打开 `http://localhost:8787/`。若本机已有服务占用端口，请先关闭旧服务；测试时可以用 `SKILLS_MANAGER_PORT=8788` 临时改端口（默认产品端口仍是 8787）。
+`npm start` 会先构建前端，再启动服务。服务已运行时，重复执行会复用现有服务，不会因 8787 端口重复占用而报错。`start.bat` / `start.vbs` 也使用同一流程。测试时可以用 `SKILLS_MANAGER_PORT=8788` 临时改端口（默认产品端口仍是 8787）。
 
 ## 配置
 

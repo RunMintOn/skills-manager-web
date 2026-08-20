@@ -311,6 +311,7 @@ async function serveStatic(request: IncomingMessage, response: ServerResponse, u
     if (!info.isFile()) throw new Error("not file")
     response.statusCode = 200
     response.setHeader("Content-Type", contentType(candidate))
+    response.setHeader("Cache-Control", "no-store")
     createReadStream(candidate).pipe(response)
   } catch {
     if (requested !== "/index.html") {
@@ -319,6 +320,7 @@ async function serveStatic(request: IncomingMessage, response: ServerResponse, u
         if (fallback.isFile()) {
           response.statusCode = 200
           response.setHeader("Content-Type", "text/html; charset=utf-8")
+          response.setHeader("Cache-Control", "no-store")
           createReadStream(nodePath.join(distRoot, "index.html")).pipe(response)
           return
         }

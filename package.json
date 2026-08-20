@@ -8,8 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "server": "node src/server/server.ts",
-    "start": "node src/server/server.ts",
+    "server": "bash scripts/run-server.sh",
+    "start": "npm run build && bash scripts/run-server.sh",
     "cli": "node src/server/cli.ts"
   },
   "dependencies": {
