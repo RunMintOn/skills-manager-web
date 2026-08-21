@@ -32,6 +32,16 @@ function typedOperation(plan: SyncPlan["operations"][number]): string {
   return `fs.promises.symlink args: ${JSON.stringify(plan.link.fsArgs)}`
 }
 
+// 与 core/config.ts 的 resolvePath 保持同一套绝对路径判断，避免 Windows 风格路径被当成相对路径拼接。
+function pathMatchesHost(hostKind: HostKind, value: string): boolean {
+  return hostKind === "windows" ? /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\") : value.startsWith("/")
+}
+function pathStyleHint(hostKind: HostKind): string {
+  return hostKind === "windows"
+    ? "Windows 主机需要 C:\\... 或 \\\\server\\share 形式的路径"
+    : "WSL 主机需要 / 开头的路径（Windows 盘符请写 /mnt/c/...）"
+}
+
 export function App(): ReactElement {
   const [topTab, setTopTab] = useState<TopTab>("skills")
   const [view, setView] = useState<View>("compare")
@@ -150,6 +160,7 @@ export function App(): ReactElement {
     const path = nextPath.trim()
     if (!path) { setError("Vault 路径不能为空"); return }
     if (path === config.vault.path) return
+    if (!pathMatchesHost(config.vault.host, path)) { setError(`路径风格与主机不匹配：${pathStyleHint(config.vault.host)}`); return }
     void saveConfig({ ...config, vault: { ...config.vault, path } })
   }
   function commitVaultHost(nextHost: HostKind): void {
@@ -159,6 +170,10 @@ export function App(): ReactElement {
   async function saveAgent(): Promise<void> {
     if (!agentModal?.name.trim() || !agentModal.path.trim() || !agentModal.id.trim()) {
       setError("Agent 的 ID、名称和路径都不能为空")
+      return
+    }
+    if (!pathMatchesHost(agentModal.host, agentModal.path.trim())) {
+      setError(`路径风格与主机不匹配：${pathStyleHint(agentModal.host)}`)
       return
     }
     const editing = config.agents.some(function (item): boolean { return item.id === agentModal.id })
@@ -301,6 +316,7 @@ export function App(): ReactElement {
         <button className={topTab === "links" ? "active" : ""} onClick={() => setTopTab("links")}>通用链接</button>
       </nav>
       <div className="spacer" />
+      <button className="icon-button" aria-label="刷新数据" title="重新加载配置与扫描结果" onClick={() => void load()}>⟳</button>
       <button className="icon-button toggle-theme" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button>
     </header>
 
