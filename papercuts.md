@@ -17,3 +17,9 @@ skills-manager-web 浏览器验收：WSL 内 Google Chrome headless 可打开 da
 **Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
 
 edit 工具精确匹配易踩坑：JS 模板字符串里的 \\\" 转义引号、CSS 单行拼接 vs 多行规则，oldText 稍不一致就静默失败且整批不生效；用 python 脚本带 count 断言做批量替换更稳、失败信息更清楚
+
+## 2026-08-21T20:38:46+08:00
+
+**Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
+
+NO_PROXY 里的 127.* 通配对 curl 无效（curl 只认后缀匹配），导致本机请求走了 Clash 代理、Host 头被改写，测试结果被污染。用 curl --noproxy "*" 或把 NO_PROXY 写成 127.0.0.1
