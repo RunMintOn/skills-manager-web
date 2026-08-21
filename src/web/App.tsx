@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react"
-import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultSkill, VaultScan } from "../core/types.ts"
+import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultScan, VaultSkill } from "../core/types.ts"
 import { api, type InitResponse } from "./api"
 import { LinksWorkbench } from "./LinksWorkbench"
 import { SkillMatrix } from "./SkillMatrix"
 
 type TopTab = "skills" | "links"
 type View = "repository" | "compare" | "actual"
+type ActualMode = "collection" | "kind"
 type AgentDraft = { id: string; name: string; host: HostKind; path: string }
 
 const stateLabels: Record<string, string> = { linked: "已链接", pending: "待链接", "local-dir": "本地目录", "external-link": "外部链接", "broken-link": "断链", invalid: "无效", valid: "有效" }
@@ -34,10 +35,12 @@ function typedOperation(plan: SyncPlan["operations"][number]): string {
 export function App(): ReactElement {
   const [topTab, setTopTab] = useState<TopTab>("skills")
   const [view, setView] = useState<View>("compare")
+  const [actualMode, setActualMode] = useState<ActualMode>("collection")
+  const [showPaths, setShowPaths] = useState(false)
   const [dark, setDark] = useState(() => {
     try {
       const initial = window.localStorage.getItem("skills-manager-theme") === "dark"
-      document.body.classList.toggle("dark", initial)
+      document.body.classList.toggle("light", !initial)
       return initial
     } catch { return false }
   })
@@ -51,6 +54,7 @@ export function App(): ReactElement {
   const [actualSelectedPath, setActualSelectedPath] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [query, setQuery] = useState("")
+  const [diffOnly, setDiffOnly] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [agentModal, setAgentModal] = useState<AgentDraft | null>(null)
@@ -64,7 +68,7 @@ export function App(): ReactElement {
   const searchRef = useRef<HTMLInputElement>(null)
   const previewCloseRef = useRef<HTMLButtonElement>(null)
 
-  const loadAgent = useCallback(async (id: string, vaultValue: VaultScan) => {
+  const loadAgent = useCallback(async (id: string, vaultValue: NonNullable<typeof vault>) => {
     const result = await api.agent(id)
     setAgent(result.agent); setComparison(result.comparison); setActualSelectedPath(null)
     setSelectedSkillKey((current) => current && vaultValue.skills.some((skill) => skill.relativePath === current) ? current : vaultValue.skills[0]?.relativePath ?? null)
@@ -82,8 +86,7 @@ export function App(): ReactElement {
   useEffect(() => { setVaultPathDraft(config.vault.path) }, [config.vault.path])
   useEffect(() => {
     try { window.localStorage.setItem("skills-manager-theme", dark ? "dark" : "light") } catch { /* storage can be unavailable */ }
-    // 主题同步到 body：滚动或页面边缘露出的 body 底色必须跟随主题，否则深色模式露白底。
-    document.body.classList.toggle("dark", dark)
+    document.body.classList.toggle("light", !dark)
   }, [dark])
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -99,24 +102,25 @@ export function App(): ReactElement {
   const filteredSkills = useMemo(() => {
     if (!vault) return []
     const needle = query.normalize("NFKC").toLocaleLowerCase("en-US").trim()
-    return vault.skills.filter((skill) => !needle || [skill.id, skill.name ?? "", skill.collection, skill.description ?? "", skill.relativePath].join(" ").normalize("NFKC").toLocaleLowerCase("en-US").includes(needle))
-  }, [vault, query])
+    const base = vault.skills.filter((skill) => !needle || [skill.id, skill.name ?? "", skill.collection, skill.description ?? "", skill.relativePath].join(" ").normalize("NFKC").toLocaleLowerCase("en-US").includes(needle))
+    if (view === "compare" && diffOnly) return base.filter((skill) => comparison?.rows.find((row) => row.skillKey === skill.relativePath)?.state !== "linked")
+    return base
+  }, [vault, query, view, diffOnly, comparison])
   const groups = useMemo(() => { const map = new Map<string, VaultSkill[]>(); for (const skill of filteredSkills) map.set(skill.collection, [...(map.get(skill.collection) ?? []), skill]); return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)) }, [filteredSkills])
   const actualGroups = useMemo(() => { const map = new Map<string, AgentEntry[]>(); const needle = query.normalize("NFKC").toLocaleLowerCase("en-US").trim(); for (const entry of agent?.entries ?? []) if (!needle || [entry.name, entry.relativePath, entry.kind, entry.targetPath ?? ""].join(" ").normalize("NFKC").toLocaleLowerCase("en-US").includes(needle)) map.set(entry.kind, [...(map.get(entry.kind) ?? []), entry]); return [...map.entries()] }, [agent, query])
-  useEffect(() => {
-    collapsedGroupsInitialized.current = false
-  }, [vault])
+  useEffect(() => { collapsedGroupsInitialized.current = false }, [vault])
   useEffect(() => {
     if (collapsedGroupsInitialized.current || !groups.length) return
     collapsedGroupsInitialized.current = true
     setCollapsedGroups(new Set(groups.slice(1).map(([collection]) => `collection:${collection}`)))
   }, [groups])
+  useEffect(() => { setDiffOnly(false) }, [view, selectedAgentId])
   const detail = vault?.skills.find((skill) => skill.relativePath === selectedSkillKey) ?? filteredSkills[0]
   const detailRow: ComparisonRow | undefined = comparison?.rows.find((row) => row.skillKey === detail?.relativePath)
   const detailEntry = detail && agent ? entryForSkill(agent.entries, detail) : undefined
   const actualDetailEntry = view === "actual" && agent && actualSelectedPath ? agent.entries.find((entry) => entry.relativePath === actualSelectedPath) : undefined
   const detailRecord = detail && selectedAgentId ? (config.links ?? []).find((record) => record.agentId === selectedAgentId && record.skill === detail.relativePath) : undefined
-  const validSelected = selectedIds.filter((key) => vault?.skills.some((skill) => skill.relativePath === key && skill.validity === "valid")) ?? []
+  const validSelected = selectedIds.filter((key) => vault?.skills.some((skill) => skill.relativePath === key && skill.validity === "valid"))
 
   function toggleSelected(id: string): void {
     setSelectedIds(function updateSelection(current): string[] {
@@ -171,6 +175,15 @@ export function App(): ReactElement {
     const nextConfig: SkillManagerConfig = { ...config, agents: nextAgents }
     if (nextAgents[0]) nextConfig.selectedAgentId = nextAgents[0].id
     await saveConfig(nextConfig)
+  }
+
+  async function copyPath(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text)
+      setNotice(`路径已复制：${text}`)
+    } catch {
+      setError("复制失败：剪贴板不可用")
+    }
   }
 
   async function convertDetailCopy(): Promise<void> {
@@ -240,19 +253,164 @@ export function App(): ReactElement {
       return next
     })
   }
-  return <div className={dark ? "app dark" : "app"}>
-    <header className="topbar"><div className="brand-mark">SV</div><div className="brand-copy"><strong>Skill Vault</strong><span>localhost workspace</span></div><div className="divider" /><nav className="top-tabs" aria-label="主导航"><button className={topTab === "skills" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("skills")}>技能管理</button><button className={topTab === "links" ? "top-tab active" : "top-tab"} onClick={() => setTopTab("links")}>通用链接</button></nav><div className="top-spacer" /><button className="icon-button" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button><span className="runtime-pill"><i /> WSL · 127.0.0.1:8787</span></header>
-    {topTab === "links" ? <><div className="links-global-messages">{error && <div role="alert" className="skill-validation-banner">⚠ {error}<button onClick={() => setError(null)}>×</button></div>}{notice && <div className="notice-banner" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}</div><LinksWorkbench config={config} onConfigChange={setConfig} onNotice={(message) => setNotice(message)} onError={(message) => setError(message || null)} /></> : <main className="workspace">
-      <section className="workspace-toolbar"><div className="vault-context"><span className="eyebrow">VAULT REPOSITORY</span><div className="vault-path-row"><input className="vault-path-input" aria-label="Vault 路径" title="直接编辑路径；回车或失焦保存，只写 data/config.json" value={vaultPathDraft} placeholder="未配置 Vault" onChange={(event) => setVaultPathDraft(event.target.value)} onBlur={(event) => commitVaultPath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") commitVaultPath(event.currentTarget.value) }} /><label className="host-inline">Host<select aria-label="Vault Host" value={config.vault.host} onChange={(event) => commitVaultHost(event.target.value as HostKind)}><option value="wsl">wsl</option><option value="windows">windows</option></select></label></div></div><button className="secondary-button" onClick={() => void load()} disabled={loading}>↻ 刷新</button>{vault && <span className={vault.summary.errors ? "validation-pill error" : vault.summary.warnings ? "validation-pill" : "validation-pill ok"}><b>{vault.summary.errors ? "!" : "✓"}</b> {vault.summary.errors} 错误 · {vault.summary.warnings} 警告</span>}</section>
-      <section className="view-tabs" aria-label="技能视图">{([ ["repository", "Repository"], ["compare", "Compare"], ["actual", "Agent actual"]] as const).map(([key, label]) => <button key={key} className={view === key ? "view-tab active" : "view-tab"} onClick={() => { setView(key); if (key !== "actual") setActualSelectedPath(null) }}>{label}</button>)}<div className="toolbar-spacer" /><span className="shortcut-hint">按 <kbd>/</kbd> 搜索 · ↑↓ 移动 · Space 选择 · Esc 关闭</span><input ref={searchRef} aria-label="搜索技能" placeholder="搜索 skill、collection、描述…" value={query} onChange={(event) => setQuery(event.target.value)} /></section>
-      {error && <div role="alert" className="skill-validation-banner">⚠ {error} <button onClick={() => void load()}>重试</button></div>}{notice && <div className="notice-banner" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
-      <section className="columns">
-        <aside className="panel agent-panel"><div className="panel-heading"><span>AGENTS</span><button aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}>＋</button></div><div className="agent-list">{loading && <div className="list-empty">正在读取 Agent…</div>}{!loading && !config.agents.length && <div className="list-empty">尚未配置 Agent</div>}{config.agents.map((item) => { const health = init?.agents.find((summary) => summary.id === item.id); return <div className={selectedAgentId === item.id ? "agent-row selected" : "agent-row"} key={item.id} role="button" tabIndex={0} onClick={() => void selectAgent(item.id)} onKeyDown={(event) => { if (event.key === "Enter") void selectAgent(item.id); if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-agent-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }} data-agent-row><span className="agent-avatar">{item.name.slice(0, 1).toUpperCase() || "?"}</span><span className="agent-info"><b>{item.name}</b><small>{item.host} · {item.path}</small></span><span className="agent-state">{health?.issueCount ? `${health.issueCount} 问题` : "就绪"}</span><span className="agent-actions"><button aria-label={`编辑 ${item.name}`} onClick={(event) => { event.stopPropagation(); setAgentModal(item) }}>✎</button><button aria-label={`删除 ${item.name}`} onClick={(event) => { event.stopPropagation(); void deleteAgent(item) }}>×</button></span></div> })}</div><div className="panel-foot"><span>{config.agents.length} agents</span></div></aside>
-        <SkillMatrix view={view} loading={loading} vault={vault} agent={agent} comparison={comparison} config={config} selectedAgentId={selectedAgentId} filteredSkills={filteredSkills} groups={groups} actualGroups={actualGroups} selectedSkillKey={selectedSkillKey} selectedIds={selectedIds} actualSelectedPath={actualSelectedPath} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} onSelectSkill={(key) => setSelectedSkillKey(key)} onSelectActual={(entry) => { setActualSelectedPath(entry.relativePath); if (entry.skillKey) setSelectedSkillKey(entry.skillKey) }} onToggleSelected={toggleSelected} onToggleCollection={toggleCollection} />
-        <aside className="panel detail-panel">{view === "actual" && actualDetailEntry && !actualDetailEntry.skillKey ? <div className="detail-content"><div className="detail-title"><span className="detail-symbol">⌁</span><div><h2>{actualDetailEntry.name}</h2><p>Agent actual · {actualDetailEntry.relativePath}</p></div></div><div className="detail-section"><label>ENTRY KIND</label><code>{kindLabels[actualDetailEntry.kind] ?? actualDetailEntry.kind}</code></div><div className="detail-section"><label>PATH</label><code>{actualDetailEntry.absolutePath}</code></div><div className="detail-section"><label>TARGET</label><code>{actualDetailEntry.targetPath ?? "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{actualDetailEntry.issues.map((issue) => issue.message).join("；") || "无额外问题。"}</p></div>{(actualDetailEntry.kind === "external-link" || actualDetailEntry.kind === "broken-link") && <div className="detail-actions-row"><button className="secondary-button" disabled={syncExecuting} onClick={() => void deleteDetailLink(actualDetailEntry, actualDetailEntry.kind === "broken-link")}>删除链接</button></div>}</div> : detail ? <><div className="panel-heading"><span>SKILL DETAIL</span><span className={detail.validity === "valid" ? "detail-ok" : "detail-bad"}>{detail.validity}</span></div><div className="detail-content"><div className="detail-title"><span className="detail-symbol">✦</span><div><h2>{detail.id}</h2><p>{detail.collection} / {detail.relativePath}</p></div></div><div className="detail-section"><label>VAULT PATH</label><code>{detail.absolutePath}</code></div><div className="detail-section"><label>FRONTMATTER</label><pre>{detail.frontmatter.raw || "(empty)"}</pre></div><div className="detail-section"><label>VALIDATION</label>{detail.issues.length ? detail.issues.map((issue) => <div key={issue.code} className={issue.severity === "error" ? "validation-line bad" : "validation-line warn"}><span>{issue.severity === "error" ? "!" : "⚠"}</span>{issue.message}</div>) : <div className="validation-line good"><span>✓</span>目录名与 name 完全匹配</div>}</div><div className="detail-section"><label>AGENT ENTRY · {(config.agents.find((item) => item.id === selectedAgentId)?.name ?? "未选择").toUpperCase()}</label>{detailEntry ? <div className="agent-entry"><span className="entry-dot" />{kindLabels[detailEntry.kind] ?? detailEntry.kind}<code>{detailEntry.absolutePath}{detailEntry.targetPath ? ` → ${detailEntry.targetPath}` : ""}</code></div> : <div className="detail-hint">当前 Agent 没有同名实际条目；状态：{detailRow ? stateLabels[detailRow.state] : "未扫描"}</div>}{detailEntry && <div className="detail-actions-row">{detailEntry.kind === "repo-copy" && <button className="secondary-button" disabled={syncExecuting} onClick={() => void convertDetailCopy()}>转为链接</button>}{detailEntry.kind === "repo-link" && <button className="secondary-button" disabled={syncExecuting} onClick={() => void deleteDetailLink(detailEntry, false)}>删除链接</button>}{detailEntry.kind === "broken-link" && <button className="secondary-button" disabled={syncExecuting} onClick={() => void deleteDetailLink(detailEntry, true)}>删除断链</button>}</div>}{detailRecord && detailEntry && <p className="risk-copy">来源集合：{detailRecord.collection || "（Vault 顶层）"}（已记录在配置中）</p>}</div><div className="detail-section"><label>FLAT LINK PATH</label><code>{selectedAgentId && config.agents.find((item) => item.id === selectedAgentId) ? `${config.agents.find((item) => item.id === selectedAgentId)!.path}/${detail.name ?? detail.directoryName}` : "—"}</code></div><div className="detail-section"><label>RISKS</label><p className="risk-copy">{[...detail.issues.map((issue) => issue.message), ...(detailRow?.risks ?? [])].join("；") || "无阻塞风险。确认后可创建链接。"}</p></div></div></> : <div className="empty-state">选择一个条目查看详情</div>}</aside>
-      </section><footer className="statusbar"><span><i className="status-dot" />{loading ? "正在连接服务…" : vault ? `扫描完成 · 全部 ${vault.summary.total} 个 Skill 已发现 · ${validSelected.length} 个已选择${vault.summary.ignoredDirs ? ` · 跳过 ${vault.summary.ignoredDirs} 个无关目录` : ""}` : "服务未连接"}</span><span>Vault 只读 · 确认后可真实创建链接</span></footer>
-    </main>}
-    {agentModal && <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => setAgentModal({ ...agentModal, path: event.target.value })} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button onClick={() => setAgentModal(null)}>取消</button><button className="primary-button" onClick={() => void saveAgent()}>保存</button></div></div></div>}
-    {preview && <div className="modal-backdrop show" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={(event) => { if (event.target === event.currentTarget) setPreview(null) }}><div className="modal modal-wide preview-modal"><h3 id="preview-title">同步预览 · 确认后执行</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。点击确认后，后台会真实创建缺失的链接。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillKey}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} onClick={() => setPreview(null)}>关闭</button><button className="primary-button" disabled={syncExecuting || !preview.operations.some((operation) => operation.action === "create-link")} onClick={() => void executeSync()}>{syncExecuting ? "执行中…" : "确认并执行"}</button></div></div></div>}
+
+  const selectedAgent = config.agents.find((item) => item.id === selectedAgentId)
+  const compareStatDefs = (() => {
+    const base = [
+      { key: "linked", label: "已链接", tone: "green" },
+      { key: "pending", label: "待链接", tone: "amber" },
+    ] as const
+    if (view === "compare" && comparison) {
+      const sum = comparison.summary
+      return [
+        { label: "已链接", tone: "green", count: sum.linked },
+        { label: "待链接", tone: "amber", count: sum.pending },
+        { label: "断链/无效", tone: "red", count: sum["broken-link"] + sum["invalid"] },
+        { label: "Agent 额外", tone: "gray", count: comparison.actualOnly.length },
+      ]
+    }
+    if (view === "repository" && vault) {
+      return [
+        { label: "有效", tone: "green", count: vault.summary.valid },
+        { label: "警告", tone: "amber", count: vault.summary.warnings },
+        { label: "错误", tone: "red", count: vault.summary.errors },
+        { label: "总计", tone: "gray", count: vault.summary.total },
+      ]
+    }
+    if (view === "actual" && agent) {
+      return [
+        { label: "条目", tone: "gray", count: agent.entries.length },
+        { label: "链接", tone: "green", count: agent.entries.filter((e) => e.targetPath).length },
+        { label: "断链", tone: "red", count: agent.entries.filter((e) => e.kind === "broken-link").length },
+      ]
+    }
+    return base.map((b) => ({ label: b.label, tone: b.tone, count: 0 }))
+  })()
+  const targetLabel = view === "actual" ? "Agent actual" : view === "repository" ? "Vault（审计）" : (selectedAgent?.name ?? "未选择 Agent")
+  const targetCaption = view === "actual" ? (selectedAgent?.path ?? "") : view === "repository" ? (config.vault.path || "") : (selectedAgent?.path ?? "")
+  const statusPill = detail ? (detail.validity === "valid" ? { text: "有效", tone: "good" } : { text: "无效", tone: "bad" }) : { text: "—", tone: "gray" }
+  const inspectorKind = actualDetailEntry ? kindLabels[actualDetailEntry.kind] ?? actualDetailEntry.kind : undefined
+
+  return <div className={dark ? "app" : "app light"}>
+    <header className="topbar">
+      <div className="logo">SV</div>
+      <div className="brand">Skill Vault<small>local workspace</small></div>
+      <div className="divider" />
+      <nav className="nav" aria-label="主导航">
+        <button className={topTab === "skills" ? "active" : ""} onClick={() => setTopTab("skills")}>技能管理</button>
+        <button className={topTab === "links" ? "active" : ""} onClick={() => setTopTab("links")}>通用链接</button>
+      </nav>
+      <div className="spacer" />
+      <button className="icon-button toggle-theme" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button>
+    </header>
+
+    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
+      <main className="workspace">
+        <aside className="left">
+          <div className="pane-head"><span>Agent 目标</span><div className="head-actions"><button className="head-btn" title="添加 Agent" aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg></button></div></div>
+          <div className="baseline-box">
+            <div className="baseline-label"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z" /></svg>Baseline repository</div>
+            <div className="repo-field"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z" /></svg>
+              <input aria-label="Vault 路径" title="直接编辑路径，回车或失焦保存（只写 data/config.json）" value={vaultPathDraft} placeholder="未配置 Vault" onChange={(event) => setVaultPathDraft(event.target.value)} onBlur={(event) => commitVaultPath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { commitVaultPath(event.currentTarget.value); event.currentTarget.blur() } }} />
+              <button className="repo-copy-btn" aria-label="复制 Vault 路径" title="复制 Vault 路径" onClick={() => void copyPath(config.vault.path)}>⧉</button>
+            </div>
+          </div>
+          <div className="agent-list">
+            {loading && <div className="list-empty">正在读取 Agent…</div>}
+            {!loading && !config.agents.length && <div className="list-empty">尚未配置 Agent</div>}
+            {config.agents.map((item) => {
+              const health = init?.agents.find((summary) => summary.id === item.id)
+              return <div className={selectedAgentId === item.id ? "agent-row active" : "agent-row"} key={item.id} role="button" tabIndex={0} onClick={() => void selectAgent(item.id)} onKeyDown={(event) => { if (event.key === "Enter") void selectAgent(item.id); if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); focusListItem("[data-agent-row]", event.currentTarget, event.key === "ArrowDown" ? 1 : -1) } }} data-agent-row>
+                <span className="agent-icon">{item.name.slice(0, 1).toUpperCase() || "?"}</span>
+                <span className="agent-copy"><strong>{item.name}</strong><small>{item.host} · {item.path}</small></span>
+                <span className="agent-issue">{health?.issueCount ? `${health.issueCount} 问题` : "就绪"}</span>
+                <span className="agent-actions"><button aria-label={`复制 ${item.name} 路径`} title="复制路径" onClick={(event) => { event.stopPropagation(); void copyPath(item.path) }}>⧉</button><button aria-label={`编辑 ${item.name}`} onClick={(event) => { event.stopPropagation(); setAgentModal(item) }}>✎</button><button aria-label={`删除 ${item.name}`} onClick={(event) => { event.stopPropagation(); void deleteAgent(item) }}>×</button></span>
+              </div>
+            })}
+          </div>
+          <div className="left-foot"><span>{config.agents.length} agents · baseline fixed</span></div>
+        </aside>
+
+        <main className="center">
+          <div className="center-top">
+            <div className="breadcrumb">{targetCaption || "VAULT / 未配置"}</div>
+            <div className="compare-row">
+              <div className="compare-context" title="当前对比">
+                <div className="compare-side"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z" /></svg><span>Baseline</span><strong>Vault repository</strong></div>
+                <div className="compare-arrow">↔</div>
+                <div className="compare-side"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M5 6h6M5 9h4" /></svg><span>Target</span><strong>{targetLabel}</strong></div>
+              </div>
+              <div className="compare-stats">
+                {compareStatDefs.map((stat) => <span key={stat.label} className={`stat ${stat.tone}`}><span className="dot" /><b>{stat.count}</b> {stat.label}</span>)}
+              </div>
+              {view === "compare" && <button className="btn" onClick={() => setDiffOnly((value) => !value)} style={diffOnly ? { background: "var(--selected-strong)", color: "var(--white)" } : undefined}>仅看差异</button>}
+            </div>
+            <div className="toolbar">
+              <div className="summary" style={{ marginRight: "auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{view === "actual" ? <><span>{view === "actual" && agent ? `${agent.entries.length} 项` : ""} Agent 实际条目</span></> : <><span>{groups.length} 个集合</span> <span>· {filteredSkills.length} 个 Skill</span></>}</div>
+              <div className="segment" role="tablist" aria-label="技能视图">
+                {([["repository", "Repository"], ["compare", "Compare"], ["actual", "Agent actual"]] as const).map(([key, label]) => <button key={key} role="tab" aria-selected={view === key} className={view === key ? "active" : ""} onClick={() => { setView(key); if (key !== "actual") setActualSelectedPath(null) }}>{label}</button>)}
+              </div>
+              {view === "actual" && <div className="segment" role="tablist" aria-label="Agent 实际视图">
+                {([["collection", "按集合"], ["kind", "按类型"]] as const).map(([key, label]) => <button key={key} role="tab" aria-selected={actualMode === key} className={actualMode === key ? "active" : ""} onClick={() => setActualMode(key)}>{label}</button>)}
+              </div>}
+              <button className="btn" onClick={() => setCollapsedGroups(new Set())} title="展开所有分组">全部展开</button>
+              <button className={showPaths ? "btn active-path" : "btn"} onClick={() => setShowPaths((value) => !value)} title="在列表中显示路径（默认只显示在右侧详情）">路径</button>
+              <input ref={searchRef} className="search" aria-label="搜索技能" placeholder="搜索 skill、collection、描述…" value={query} onChange={(event) => setQuery(event.target.value)} />
+              {view !== "actual" && <button className="btn" disabled={!validSelected.length} onClick={() => void openPreview()} title="预览同步计划">{validSelected.length} 个选择</button>}
+              {view !== "actual" && <button className="btn primary" disabled={!validSelected.length || previewLoading} onClick={() => void openPreview()}>{previewLoading ? "计算中…" : "预览同步 →"}</button>}
+              <span className="kbd-hint">按 <kbd>/</kbd> 搜索 · <kbd>Space</kbd> 选择 · <kbd>Esc</kbd> 关闭</span>
+            </div>
+          </div>
+          {error && <div className="banner banner-error" role="alert">⚠ {error} <button onClick={() => void load()}>重试</button><button onClick={() => setError(null)}>×</button></div>}
+          {notice && <div className="banner banner-notice" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
+          <SkillMatrix view={view} actualMode={actualMode} showPaths={showPaths} loading={loading} vault={vault} agent={agent} comparison={comparison} config={config} selectedAgentId={selectedAgentId} filteredSkills={filteredSkills} groups={groups} actualGroups={actualGroups} selectedSkillKey={selectedSkillKey} selectedIds={selectedIds} actualSelectedPath={actualSelectedPath} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} onSelectSkill={(key) => setSelectedSkillKey(key)} onSelectActual={(entry) => { setActualSelectedPath(entry.relativePath); if (entry.skillKey) setSelectedSkillKey(entry.skillKey) }} onToggleSelected={toggleSelected} onToggleCollection={toggleCollection} />
+        </main>
+
+        <aside className="right">
+          <div className="inspector-head">
+            <div className="inspector-title"><strong>{actualDetailEntry ? actualDetailEntry.name : (detail?.id ?? "—")}</strong><span>{actualDetailEntry ? `/agent/${actualDetailEntry.relativePath}` : (detail ? `${detail.collection} / ${detail.relativePath}` : "未选择条目")}</span></div>
+            <span className={`status-pill ${statusPill.tone}`}>{actualDetailEntry ? (actualDetailEntry.kind === "broken-link" ? "断链" : actualDetailEntry.kind) : statusPill.text}</span>
+          </div>
+          <div className="inspector-scroll">
+            {actualDetailEntry && !actualDetailEntry.skillKey ? <>
+              <section className="inspector-section"><div className="section-label">Entry 类型</div><div className="compare-card">
+                <div className="compare-card-side"><div className="k">Agent</div><strong>{actualDetailEntry.name}</strong><code>{actualDetailEntry.relativePath}</code></div>
+                <div className="compare-card-mid">↔</div>
+                <div className="compare-card-side"><div className="k">Repository</div><strong>—</strong><code>不在 Vault</code></div>
+              </div></section>
+              <section className="inspector-section"><div className="section-label">路径</div><div className="path-box">{actualDetailEntry.absolutePath}</div></section>
+              {actualDetailEntry.targetPath && <section className="inspector-section"><div className="section-label">链接目标</div><div className="path-box">{actualDetailEntry.targetPath}</div></section>}
+              <section className="inspector-section"><div className="section-label">风险</div>{actualDetailEntry.issues.length ? actualDetailEntry.issues.map((issue) => <div className="risk" key={issue.code}><span className={`risk-mark ${issue.severity === "error" ? "bad" : ""}`} /><span>{issue.message}</span></div>) : <div className="desc">无额外问题。</div>}</section>
+              {(actualDetailEntry.kind === "external-link" || actualDetailEntry.kind === "broken-link") && <section className="inspector-section"><div className="section-label">操作</div><div className="inspector-actions"><button className="btn" disabled={syncExecuting} onClick={() => void deleteDetailLink(actualDetailEntry, actualDetailEntry.kind === "broken-link")}>删除链接</button></div></section>}
+            </> : detail ? <>
+              <section className="inspector-section"><div className="section-label">对比</div><div className="compare-card">
+                <div className="compare-card-side"><div className="k">Repository</div><strong>存在</strong><code>/vault/skills/{detail.relativePath}</code></div>
+                <div className="compare-card-mid">↔</div>
+                <div className="compare-card-side"><div className="k">{selectedAgent?.name ?? "Agent"}</div><strong>{detailEntry ? (detailEntry.kind === "repo-link" ? "已链接" : "存在（未链接）") : (detailRow?.state === "linked" ? "已链接" : "缺失")}</strong><code>{detailRow?.agentEntryPaths.join("、") || "—"}</code></div>
+              </div></section>
+              <section className="inspector-section"><div className="section-label">Vault 路径</div><div className="path-box">{detail.absolutePath}</div></section>
+              <section className="inspector-section"><div className="section-label">Frontmatter</div><div className="code">{detail.frontmatter.raw || "(空)"}</div></section>
+              <section className="inspector-section"><div className="section-label">校验</div>{detail.issues.length ? detail.issues.map((issue) => <div className="validation-row" key={issue.code}><span className={issue.severity === "error" ? "e" : "w"}>{issue.severity === "error" ? "✕" : "⚠"}</span><span>{issue.message}</span><em>{issue.severity}</em></div>) : <div className="validation-row"><span className="v">✓</span><span>目录名与 name 完全匹配</span><em>valid</em></div>}</section>
+              <section className="inspector-section"><div className="section-label">Agent 条目 · {selectedAgent?.name ?? "未选择"}</div>
+                {detailEntry ? <div className="link-state"><span className={`status-dot ${detailEntry.kind === "repo-link" ? "green" : detailEntry.kind === "broken-link" ? "red" : "amber"}`} />{kindLabels[detailEntry.kind] ?? detailEntry.kind}<code style={{ marginLeft: "auto", fontSize: "7.5px", color: "var(--muted-2)" }}>{detailEntry.absolutePath}{detailEntry.targetPath ? ` → ${detailEntry.targetPath}` : ""}</code></div> : <div className="desc">当前 Agent 没有同名实际条目；状态：{detailRow ? stateLabels[detailRow.state] : "未扫描"}</div>}
+                {detailEntry && <div className="inspector-actions">
+                  {detailEntry.kind === "repo-copy" && <button className="btn" disabled={syncExecuting} onClick={() => void convertDetailCopy()}>转为链接</button>}
+                  {detailEntry.kind === "repo-link" && <button className="btn" disabled={syncExecuting} onClick={() => void deleteDetailLink(detailEntry, false)}>删除链接</button>}
+                  {detailEntry.kind === "broken-link" && <button className="btn" disabled={syncExecuting} onClick={() => void deleteDetailLink(detailEntry, true)}>删除断链</button>}
+                </div>}
+                {detailRecord && detailEntry && <div className="risk"><span className="risk-mark" /><span>来源集合：{detailRecord.collection || "（Vault 顶层）"}（已记录在配置中）</span></div>}
+              </section>
+              <section className="inspector-section"><div className="section-label">扁平链接路径</div><div className="path-box">{selectedAgent ? `${selectedAgent.path}/${detail.name ?? detail.directoryName}` : "—"}</div></section>
+              <section className="inspector-section"><div className="section-label">元数据</div><dl className="kv"><dt>Baseline</dt><dd>Vault repository</dd><dt>Target</dt><dd>{selectedAgent?.name ?? "—"}</dd><dt>视图</dt><dd>{view === "compare" ? "Compare" : view === "repository" ? "Repository" : "Agent actual"}</dd></dl></section>
+              <section className="inspector-section"><div className="section-label">风险</div>{[...detail.issues.map((issue) => issue.message), ...(detailRow?.risks ?? [])].length ? [...detail.issues.map((issue) => issue.message), ...(detailRow?.risks ?? [])].map((risk) => <div className="risk" key={risk}><span className={`risk-mark ${risk.includes("无效") || risk.includes("不可") ? "bad" : ""}`} /><span>{risk}</span></div>) : <div className="desc">无阻塞风险。确认后可创建链接。</div>}</section>
+              {inspectorKind && <section className="inspector-section"><div className="section-label">类型</div><div className="desc">{inspectorKind}</div></section>}
+            </> : <div className="empty-state">选择一个条目查看详情</div>}
+          </div>
+        </aside>
+      </main>
+    )}
+
+    {agentModal && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => setAgentModal({ ...agentModal, path: event.target.value })} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button className="btn" onClick={() => setAgentModal(null)}>取消</button><button className="btn primary" onClick={() => void saveAgent()}>保存</button></div></div></div>}
+    {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={(event) => { if (event.target === event.currentTarget) setPreview(null) }}><div className="modal modal-wide"><h3 id="preview-title">同步预览 · 确认后执行</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。点击确认后，后台会真实创建缺失的链接。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillKey}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} className="btn" onClick={() => setPreview(null)}>关闭</button><button className="btn primary" disabled={syncExecuting || !preview.operations.some((operation) => operation.action === "create-link")} onClick={() => void executeSync()}>{syncExecuting ? "执行中…" : "确认并执行"}</button></div></div></div>}
   </div>
 }

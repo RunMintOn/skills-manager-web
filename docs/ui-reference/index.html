@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Skill Vault — Neutral Graphite Reference</title>
+<style>
+:root{
+  color-scheme:dark;
+  /* Neutral graphite only. No blue-tinted surfaces. */
+  --bg:#161616;
+  --chrome:#1b1b1b;
+  --panel:#1e1e1e;
+  --panel-2:#222222;
+  --panel-3:#262626;
+  --field:#191919;
+  --hover:#272727;
+  --selected:#303030;
+  --selected-strong:#383838;
+  --line:#2d2d2d;
+  --line-soft:#272727;
+  --line-strong:#383838;
+  --text:#d6d6d6;
+  --text-2:#b3b3b3;
+  --muted:#858585;
+  --muted-2:#666666;
+  --green:#4fc17a;
+  --amber:#d6a647;
+  --red:#e06c75;
+  --white:#f0f0f0;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  --ui:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px}
+body{overflow:hidden}
+button,input{font:inherit}
+button{color:inherit}
+svg{display:block}
+.app{height:100vh;display:grid;grid-template-rows:42px minmax(0,1fr);background:var(--bg)}
+
+/* ---------- Top chrome ---------- */
+.topbar{display:flex;align-items:center;gap:11px;padding:0 12px;border-bottom:1px solid var(--line-strong);background:var(--chrome);user-select:none}
+.logo{width:24px;height:24px;display:grid;place-items:center;border-radius:4px;background:#2a2a2a;border:1px solid #444;color:#efefef;font-weight:800;font-size:9px;letter-spacing:.02em}
+.brand{font-weight:700;font-size:11.5px;letter-spacing:.01em}.brand small{display:block;margin-top:1px;color:var(--muted);font-size:7.8px;font-weight:600;letter-spacing:.1em;text-transform:uppercase}
+.divider{width:1px;height:20px;background:var(--line-strong);margin:0 3px}
+.nav{display:flex;align-items:center;gap:2px;height:100%}
+.nav button{height:28px;padding:0 10px;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--text-2);font-size:10px;cursor:pointer}
+.nav button:hover{background:var(--hover)}
+.nav button.active{background:#2a2a2a;border-color:#3a3a3a;color:var(--white);font-weight:650}
+.spacer{flex:1;min-width:0}
+.env{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:9px;white-space:nowrap}.live{width:5px;height:5px;border-radius:50%;background:var(--green)}
+.icon-button{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:3px;background:transparent;color:var(--muted);cursor:pointer}.icon-button:hover{background:var(--hover);color:var(--text)}
+.icon-button svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.6}
+
+/* ---------- Three-column shell ---------- */
+.workspace{min-height:0;display:grid;grid-template-columns:190px minmax(620px,1fr) 316px;background:var(--bg)}
+.left,.center,.right{min-width:0;min-height:0}
+.left{display:flex;flex-direction:column;border-right:1px solid var(--line-strong);background:var(--panel)}
+.center{display:flex;flex-direction:column;background:var(--panel)}
+.right{display:flex;flex-direction:column;border-left:1px solid var(--line-strong);background:var(--panel)}
+
+/* ---------- Shared pane chrome ---------- */
+.pane-head{height:37px;display:flex;align-items:center;padding:0 11px;border-bottom:1px solid var(--line);color:#929292;font-size:8.5px;font-weight:750;letter-spacing:.1em;text-transform:uppercase;user-select:none}
+.pane-head .head-actions{margin-left:auto;display:flex;gap:2px}
+.pane-head .head-btn{width:21px;height:21px;display:grid;place-items:center;border:0;border-radius:3px;background:transparent;color:var(--muted);cursor:pointer}.pane-head .head-btn:hover{background:var(--hover);color:var(--text)}
+.pane-head .head-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.5}
+
+/* ---------- Left: agents ---------- */
+.baseline-box{padding:9px;border-bottom:1px solid var(--line)}
+.baseline-label{display:flex;align-items:center;gap:6px;margin:0 0 6px 2px;color:var(--muted);font-size:7.8px;text-transform:uppercase;letter-spacing:.08em}
+.baseline-label svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.5}
+.repo-field{height:29px;display:flex;align-items:center;gap:7px;padding:0 7px;border:1px solid var(--line-strong);border-radius:3px;background:var(--field);font-family:var(--mono);font-size:8.3px;color:var(--text-2);overflow:hidden;white-space:nowrap}
+.repo-field svg{width:12px;height:12px;flex:0 0 12px;stroke:#9a9a9a;fill:none;stroke-width:1.5}.repo-field span{overflow:hidden;text-overflow:ellipsis}
+.agent-list{padding:7px;overflow:auto}
+.agent{position:relative;display:grid;grid-template-columns:25px minmax(0,1fr);gap:7px;align-items:center;padding:6px 7px;margin-bottom:3px;border:1px solid transparent;border-radius:3px;cursor:pointer;color:var(--text-2)}
+.agent:hover{background:var(--hover)}
+.agent.active{background:#2b2b2b;border-color:#404040;color:var(--white)}
+.agent.active:before{content:"";position:absolute;left:-1px;top:5px;bottom:5px;width:2px;background:#a0a0a0}
+.agent-icon{width:24px;height:24px;display:grid;place-items:center;border-radius:3px;background:#181818;border:1px solid #373737;color:#c3c3c3;font-family:var(--mono);font-weight:800;font-size:9px}
+.agent strong{display:block;font-size:9.7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.agent small{display:block;margin-top:2px;font-family:var(--mono);font-size:7.7px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent .issue{position:absolute;right:7px;top:7px;font-size:7.5px;color:var(--amber)}
+.left-foot{margin-top:auto;height:25px;display:flex;align-items:center;padding:0 9px;border-top:1px solid var(--line);color:var(--muted);font-size:8px}
+
+/* ---------- Center header / compare context ---------- */
+.center-top{border-bottom:1px solid var(--line-strong);background:var(--panel)}
+.breadcrumb{height:28px;display:flex;align-items:center;padding:0 10px;color:var(--muted);font-size:8.2px;font-family:var(--mono);border-bottom:1px solid var(--line-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.compare-row{height:42px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line-soft)}
+.compare-context{display:flex;align-items:center;min-width:0;height:28px;border:1px solid var(--line-strong);border-radius:3px;background:#1a1a1a;overflow:hidden}
+.compare-side{height:100%;display:flex;align-items:center;gap:6px;padding:0 8px;min-width:0}.compare-side svg{width:12px;height:12px;flex:0 0 12px;stroke:#9a9a9a;fill:none;stroke-width:1.5}.compare-side span{font-size:8.5px;color:var(--text-2);white-space:nowrap}.compare-side strong{font-size:9px;color:var(--white);font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:145px}.compare-arrow{height:100%;display:grid;place-items:center;width:28px;border-left:1px solid var(--line);border-right:1px solid var(--line);color:#777;font-size:12px}
+.compare-stats{display:flex;align-items:center;gap:10px;margin-left:3px;font-size:8.5px;white-space:nowrap}.stat{display:flex;align-items:center;gap:5px;color:var(--muted)}.stat b{font-weight:700;color:var(--text)}.stat .dot{width:5px;height:5px;border-radius:50%}.stat.match .dot{background:var(--green)}.stat.missing .dot{background:var(--red)}.stat.extra .dot{background:var(--amber)}.stat.changed .dot{background:#9a9a9a}
+.toolbar{height:38px;display:flex;align-items:center;gap:6px;padding:0 10px}
+.summary{font-size:9.5px;font-weight:650;color:var(--text)}.summary span{color:var(--muted);font-weight:500}
+.search{width:270px;height:27px;border:1px solid var(--line-strong);border-radius:3px;background:var(--field);color:var(--text);outline:none;padding:0 8px;font-size:9px}
+.search::placeholder{color:#696969}.search:focus{border-color:#666;box-shadow:0 0 0 1px #353535}
+.btn{height:27px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 8px;border:1px solid var(--line-strong);border-radius:3px;background:#242424;color:var(--text-2);font-size:9px;cursor:pointer}.btn:hover{background:#2d2d2d;color:var(--white)}.btn.primary{background:#343434;border-color:#4c4c4c;color:#f1f1f1}.btn.primary:hover{background:#3a3a3a}.btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.6}
+.segment{display:flex;border:1px solid var(--line-strong);border-radius:3px;overflow:hidden}.segment button{width:27px;height:25px;display:grid;place-items:center;border:0;border-right:1px solid var(--line-strong);background:#222;color:var(--muted);cursor:pointer}.segment button:last-child{border-right:0}.segment button.active{background:#303030;color:#e5e5e5}.segment svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.5}
+
+/* ---------- Tree table ---------- */
+.table-wrap{min-height:0;overflow:auto;background:var(--panel)}
+.skill-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px}
+.skill-table thead{position:sticky;top:0;z-index:10}
+.skill-table thead th{height:29px;padding:0 7px;text-align:left;background:#232323;border-bottom:1px solid var(--line-strong);color:#8a8a8a;font-size:7.8px;font-weight:700;letter-spacing:.035em}
+.skill-table tbody tr{height:23px;border-bottom:1px solid var(--line-soft);background:var(--panel)}
+.skill-table tbody tr:hover{background:var(--hover)}
+.skill-table tbody tr.selected{background:var(--selected)}
+.skill-table tbody tr.selected td:first-child{box-shadow:inset 2px 0 0 #949494}
+.skill-table th,.skill-table td{padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.col-tree{width:50%}.col-compare{width:82px}.col-repo{width:70px}.col-agent{width:70px}.col-valid{width:78px}.col-link{width:66px}.col-actions{width:48px}
+.tree-head{display:flex;align-items:center;gap:7px}
+
+/* Checkbox is deliberately smaller than status dot/row spacing. */
+.checkbox{width:9px;height:9px;flex:0 0 9px;border:1px solid #666;border-radius:2px;background:#171717;display:grid;place-items:center;cursor:pointer}
+.checkbox:hover{border-color:#888}.checkbox.checked{background:#777;border-color:#8e8e8e}.checkbox.checked:after{content:"✓";font-size:6.5px;color:#111;font-weight:900;line-height:1}.header-check{margin-left:1px}
+.tree{height:23px;display:flex;align-items:center;min-width:0;position:relative}
+.node-toggle{width:13px;flex:0 0 13px;display:grid;place-items:center;color:#808080;cursor:pointer;user-select:none}.node-toggle:hover{color:#d0d0d0}.node-toggle svg{width:9px;height:9px;stroke:currentColor;fill:none;stroke-width:1.7}
+.folder{width:14px;height:14px;flex:0 0 14px;margin:0 6px 0 6px;color:#9b9b9b}.folder svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5}
+.group-name{font-family:var(--mono);font-weight:700;color:#d6d6d6;overflow:hidden;text-overflow:ellipsis}.count{height:14px;min-width:17px;padding:0 4px;display:inline-flex;align-items:center;justify-content:center;margin-left:6px;border-radius:3px;background:#303030;color:#999;font-size:7px}.group-path,.skill-path{margin-left:9px;font-family:var(--mono);font-size:7.7px;color:#6f6f6f;overflow:hidden;text-overflow:ellipsis}
+
+/* Child indentation owns branch + checkbox, matching the reference hierarchy. */
+.child-tree{padding-left:13px}
+.branch{position:relative;width:22px;height:23px;flex:0 0 22px}
+.branch:before{content:"";position:absolute;left:5px;top:-12px;bottom:11px;border-left:1px solid #3b3b3b}.branch:after{content:"";position:absolute;left:5px;top:11px;width:13px;border-top:1px solid #3b3b3b}
+.status-dot{width:5px;height:5px;flex:0 0 5px;border-radius:50%;background:var(--green);margin:0 7px 0 7px}.status-dot.missing{background:var(--red)}.status-dot.extra{background:var(--amber)}.status-dot.changed{background:#9d9d9d}
+.skill-name{font-family:var(--mono);font-weight:650;color:#cecece;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}.selected .skill-name{color:#f0f0f0}.selected .skill-path{color:#898989}
+.compare-cell{font-size:8px}.cmp{display:inline-flex;align-items:center;gap:5px;font-weight:650}.cmp:before{content:"";width:5px;height:5px;border-radius:50%;background:#888}.cmp.match{color:#76d398}.cmp.match:before{background:var(--green)}.cmp.missing{color:#e88389}.cmp.missing:before{background:var(--red)}.cmp.extra{color:#e3bb68}.cmp.extra:before{background:var(--amber)}.cmp.changed{color:#b7b7b7}.cmp.changed:before{background:#9d9d9d}
+.presence{color:#9b9b9b}.presence.yes{color:#c8c8c8}.presence.no{color:#5f5f5f}.valid-icon{color:var(--green);font-weight:800}.warn-icon{color:var(--amber)}.bad-icon{color:var(--red)}.actions{color:#777;letter-spacing:1px;cursor:pointer}.actions:hover{color:#ccc}
+.center-foot{height:25px;display:flex;align-items:center;padding:0 9px;border-top:1px solid var(--line-strong);background:#1b1b1b;color:var(--muted);font-size:8px}
+
+/* ---------- Right inspector ---------- */
+.inspector-head{height:45px;display:flex;align-items:center;padding:0 11px;border-bottom:1px solid var(--line-strong);background:var(--panel-2)}
+.inspector-title{min-width:0}.inspector-title strong{display:block;font-family:var(--mono);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.inspector-title span{display:block;margin-top:2px;color:var(--muted);font-size:7.8px}.status-pill{margin-left:auto;height:17px;display:inline-flex;align-items:center;padding:0 6px;border:1px solid #3f684d;border-radius:3px;background:#1d2a21;color:#77d498;font-size:7px;font-weight:750;letter-spacing:.05em}
+.inspector-scroll{min-height:0;overflow:auto}
+.inspector-section{padding:10px 11px;border-bottom:1px solid var(--line)}.section-label{margin-bottom:7px;color:#888;font-size:7.8px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.desc{color:#999;font-size:8.5px;line-height:1.5}
+.compare-card{display:grid;grid-template-columns:1fr 23px 1fr;border:1px solid var(--line-strong);background:#191919;border-radius:3px;overflow:hidden}.compare-card-side{padding:8px;min-width:0}.compare-card-side .k{color:#757575;font-size:7.5px;text-transform:uppercase;letter-spacing:.06em}.compare-card-side strong{display:block;margin-top:4px;color:#d0d0d0;font-size:8.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.compare-card-side code{display:block;margin-top:4px;color:#777;font-size:7.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.compare-card-mid{display:grid;place-items:center;border-left:1px solid var(--line);border-right:1px solid var(--line);color:#707070}
+.path-box,.code{padding:8px;border:1px solid var(--line-strong);border-radius:3px;background:#171717;font-family:var(--mono);font-size:7.8px;color:#b8b8b8;line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap}.validation-row{height:23px;display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:center;color:#9f9f9f;font-size:8px}.validation-row .v{color:var(--green)}.validation-row em{font-style:normal;color:#767676;font-size:7.5px}.link-card{border-left:2px solid #777;padding-left:8px}.link-state{display:flex;align-items:center;gap:6px;margin-bottom:6px;color:#c4c4c4;font-size:8px}.link-state .status-dot{margin:0}.inspector-actions{display:flex;gap:6px;margin-top:7px}.inspector-actions .btn{flex:1}.kv{display:grid;grid-template-columns:76px minmax(0,1fr);gap:6px 8px;font-size:8px}.kv dt{color:#717171}.kv dd{margin:0;color:#b0b0b0}.risk{display:flex;gap:7px;margin:6px 0;color:#969696;font-size:8px;line-height:1.4}.risk-mark{width:5px;height:5px;border-radius:50%;background:var(--amber);margin-top:3px;flex:0 0 auto}.risk-mark.bad{background:var(--red)}
+
+@media(max-width:1220px){.workspace{grid-template-columns:172px minmax(570px,1fr) 286px}.col-repo,.col-link{display:none}.search{width:210px}.compare-stats .changed{display:none}}
+@media(max-width:980px){.workspace{grid-template-columns:58px minmax(540px,1fr) 260px}.baseline-box,.agent strong,.agent small,.agent .issue,.pane-head span{display:none}.agent{grid-template-columns:24px;padding:6px}.col-valid{display:none}.compare-side strong{max-width:90px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="logo">SV</div>
+    <div class="brand">Skill Vault<small>local workspace</small></div>
+    <div class="divider"></div>
+    <nav class="nav"><button class="active">技能管理</button><button>通用链接</button></nav>
+    <div class="spacer"></div>
+    <button class="icon-button" title="Command palette" aria-label="Command palette">
+      <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+    </button>
+    <div class="env"><span class="live"></span><span>WSL · 127.0.0.1:8787</span></div>
+  </header>
+
+  <div class="workspace">
+    <aside class="left">
+      <div class="pane-head"><span>Compare target</span><div class="head-actions"><button class="head-btn" title="Add agent"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button></div></div>
+      <div class="baseline-box">
+        <div class="baseline-label"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z"/></svg>Baseline repository</div>
+        <div class="repo-field"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z"/></svg><span>WSL-SKILL-VAULT</span></div>
+      </div>
+      <div class="agent-list">
+        <div class="agent"><div class="agent-icon">F</div><div><strong>Fixture Agent</strong><small>wsl · /home/lee/fixtures</small></div><span class="issue">8</span></div>
+        <div class="agent active"><div class="agent-icon">W</div><div><strong>WSL Agent</strong><small>wsl · /home/lee/.agents</small></div><span class="issue">1</span></div>
+      </div>
+      <div class="left-foot">2 agents · baseline fixed</div>
+    </aside>
+
+    <main class="center">
+      <div class="center-top">
+        <div class="breadcrumb">VAULT / home / lee / .agents / WSL-SKILL-VAULT / skills</div>
+
+        <div class="compare-row">
+          <div class="compare-context" title="Current comparison">
+            <div class="compare-side">
+              <svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z"/></svg>
+              <span>Baseline</span><strong>Vault repository</strong>
+            </div>
+            <div class="compare-arrow">↔</div>
+            <div class="compare-side">
+              <svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5 6h6M5 9h4"/></svg>
+              <span>Target</span><strong>WSL Agent</strong>
+            </div>
+          </div>
+          <div class="compare-stats">
+            <span class="stat match"><span class="dot"></span><b>29</b> 共有</span>
+            <span class="stat missing"><span class="dot"></span><b>4</b> 缺失</span>
+            <span class="stat extra"><span class="dot"></span><b>2</b> 额外</span>
+            <span class="stat changed"><span class="dot"></span><b>3</b> 有差异</span>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn"><svg viewBox="0 0 16 16"><path d="M3 4h10M5 8h6M7 12h2"/></svg>仅看差异</button>
+        </div>
+
+        <div class="toolbar">
+          <div class="summary">7 个集合 <span>· 35 个基线 Skill</span></div>
+          <div class="spacer"></div>
+          <input id="search" class="search" placeholder="搜索 skill、collection、路径…" />
+          <button class="btn"><svg viewBox="0 0 16 16"><path d="M2.5 3.5h11l-4 4.5v4l-3 1v-5z"/></svg>筛选</button>
+          <button class="btn">7 个选择</button>
+          <button class="btn primary">预览同步 →</button>
+          <div class="segment">
+            <button class="active" title="Tree table"><svg viewBox="0 0 16 16"><path d="M3 3.5h10M3 8h10M3 12.5h10"/></svg></button>
+            <button title="Compact"><svg viewBox="0 0 16 16"><rect x="3" y="3" width="4" height="4"/><rect x="9" y="3" width="4" height="4"/><rect x="3" y="9" width="4" height="4"/><rect x="9" y="9" width="4" height="4"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="skill-table">
+          <thead><tr>
+            <th class="col-tree"><div class="tree-head"><span class="checkbox header-check"></span><span>Skill / 路径</span></div></th>
+            <th class="col-compare">对比</th>
+            <th class="col-repo">Repository</th>
+            <th class="col-agent">Agent</th>
+            <th class="col-valid">Frontmatter</th>
+            <th class="col-link">链接</th>
+            <th class="col-actions"></th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="center-foot"><span id="selectionCount">1 项已选择</span><div class="spacer"></div><span>比较完成 · 35 baseline / 31 agent / 2 agent-only</span></div>
+    </main>
+
+    <aside class="right">
+      <div class="inspector-head"><div class="inspector-title"><strong id="detailName">implement</strong><span>mattpocock-skills / skill comparison</span></div><span class="status-pill" id="detailStatus">MATCH</span></div>
+      <div class="inspector-scroll">
+        <section class="inspector-section">
+          <div class="section-label">Comparison</div>
+          <div class="compare-card">
+            <div class="compare-card-side"><div class="k">Repository</div><strong id="repoPresence">Present</strong><code id="repoPath">/vault/.../implement</code></div>
+            <div class="compare-card-mid">↔</div>
+            <div class="compare-card-side"><div class="k">WSL Agent</div><strong id="agentPresence">Present</strong><code id="agentPath">~/.agents/skills/implement</code></div>
+          </div>
+        </section>
+        <section class="inspector-section"><div class="section-label">Vault path</div><div class="path-box" id="detailPath">/home/lee/.agents/WSL-SKILL-VAULT/skills/mattpocock-skills/implement</div></section>
+        <section class="inspector-section"><div class="section-label">Frontmatter</div><div class="code" id="frontmatter">name: implement\ndescription: Implement a piece of work based on a spec.\ncategory: execution\ntags: [implementation, coding, spec]</div></section>
+        <section class="inspector-section"><div class="section-label">Validation</div><div class="validation-row"><span class="v">✓</span><span>目录名与 name 完全匹配</span><em>valid</em></div><div class="validation-row"><span class="v">✓</span><span>必填字段完整</span><em>valid</em></div><div class="validation-row"><span class="v">✓</span><span>链接目标存在</span><em>valid</em></div></section>
+        <section class="inspector-section"><div class="section-label">Actions</div><div class="inspector-actions"><button class="btn">查看 Diff</button><button class="btn primary">同步到 Agent</button></div></section>
+        <section class="inspector-section"><div class="section-label">Metadata</div><dl class="kv"><dt>Baseline</dt><dd>Vault repository</dd><dt>Target</dt><dd>WSL Agent</dd><dt>Last scan</dt><dd>10:22:18</dd><dt>Mode</dt><dd>Compare</dd></dl></section>
+        <section class="inspector-section"><div class="section-label">Risks</div><div class="risk"><span class="risk-mark"></span><span>同步前检查 Agent 侧存在但 Repository 缺失的额外 Skill。</span></div><div class="risk"><span class="risk-mark bad"></span><span>缺失项只代表目标 Agent 缺少基线 Skill，不代表基线本身无效。</span></div></section>
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+const folderIcon=`<span class="folder" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z"/></svg></span>`;
+const chevron=(open)=>`<span class="node-toggle" aria-hidden="true"><svg viewBox="0 0 16 16">${open?'<path d="m4 6 4 4 4-4"/>':'<path d="m6 4 4 4-4 4"/>'}</svg></span>`;
+
+const groups=[
+ {name:'Mattpocock Skills',path:'/vault/collections/mattpocock-skills',open:true,skills:[
+  ['ask-matt','match'],['code-review','match'],['codebase-design','match'],['diagnosing-bugs','match'],['domain-modeling','match'],['grill-me','missing'],['grill-with-docs','changed'],['grilling','match'],['handoff','match'],['implement','match'],['improve-codebase-architecture','match'],['prototype','match'],['research','match'],['resolving-merge-conflicts','match'],['setup-matt-pocock-skills','match'],['tdd','match'],['teach','match'],['to-questionnaire','match'],['to-spec','match']
+ ]},
+ {name:'engineering',path:'/vault/collections/engineering',open:false,skills:[['architecture-review','match'],['refactor-plan','missing']]},
+ {name:'invalid',path:'/vault/collections/invalid',open:false,skills:[['legacy-skill','changed']]},
+ {name:'Loose Skills',path:'/vault/collections/loose-skills',open:false,skills:[['scratchpad','match']]},
+ {name:'operations',path:'/vault/collections/operations',open:false,skills:[['deploy-check','missing']]},
+ {name:'patterns',path:'/vault/collections/patterns',open:false,skills:[['observer','match'],['adapter','match'],['strategy','match']]},
+ {name:'process',path:'/vault/collections/process',open:false,skills:[['handoff-flow','match'],['review-flow','changed'],['ship-flow','match'],['retro','missing']]},
+ {name:'Agent only',path:'/agent-only',open:true,virtual:true,skills:[['local-debug-helper','extra'],['scratch-notes','extra']]}
+];
+const rows=document.getElementById('rows');
+const search=document.getElementById('search');
+let selectedName='implement';
+let checked=new Set(['implement']);
+
+const labels={match:'一致',missing:'Agent 缺失',extra:'Agent 额外',changed:'有差异'};
+function checkbox(name){return `<span class="checkbox ${checked.has(name)?'checked':''}" data-check="${name}"></span>`}
+function rowPresence(kind){
+ if(kind==='missing')return ['yes','no'];
+ if(kind==='extra')return ['no','yes'];
+ return ['yes','yes'];
+}
+function fmIcon(kind){return kind==='extra'?'<span class="valid-icon">◎</span>':kind==='missing'?'<span class="presence no">—</span>':kind==='changed'?'<span class="warn-icon">△</span>':'<span class="valid-icon">◎</span>'}
+function linkIcon(kind){return kind==='missing'?'<span class="presence no">—</span>':kind==='extra'?'<span class="warn-icon">○</span>':'<span class="valid-icon">◎</span>'}
+
+function render(){
+ rows.innerHTML='';
+ const q=search.value.trim().toLowerCase();
+ groups.forEach((g)=>{
+   const visible=g.skills.filter(([s])=>!q||s.toLowerCase().includes(q)||g.name.toLowerCase().includes(q));
+   if(q && !visible.length)return;
+   const group=document.createElement('tr'); group.className='group-row';
+   group.innerHTML=`<td><div class="tree"><span data-toggle="${g.name}">${chevron(g.open)}</span>${checkbox('group:'+g.name)}${folderIcon}<span class="group-name">${g.name}</span><span class="count">${g.skills.length}</span><span class="group-path">${g.path}</span></div></td><td class="presence">—</td><td class="presence">—</td><td class="presence">—</td><td class="presence">—</td><td class="presence">—</td><td></td>`;
+   rows.appendChild(group);
+   if(g.open || q){
+     visible.forEach(([s,kind],i)=>{
+       const row=document.createElement('tr'); if(s===selectedName)row.className='selected';
+       const [repo,agent]=rowPresence(kind);
+       row.innerHTML=`<td><div class="tree child-tree ${i===visible.length-1?'last':''}"><span class="branch"></span>${checkbox(s)}<span class="status-dot ${kind}"></span><span class="skill-name">${s}</span><span class="skill-path">${kind==='extra'?'/agent/skills/':'/vault/skills/'+(g.virtual?'':g.name.toLowerCase().replaceAll(' ','-')+'/')}${s}</span></div></td>
+       <td class="compare-cell"><span class="cmp ${kind}">${labels[kind]}</span></td>
+       <td><span class="presence ${repo}">${repo==='yes'?'存在':'—'}</span></td>
+       <td><span class="presence ${agent}">${agent==='yes'?'存在':'—'}</span></td>
+       <td>${fmIcon(kind)}</td><td>${linkIcon(kind)}</td><td class="actions">···</td>`;
+       row.addEventListener('click',(e)=>{if(e.target.closest('[data-check]'))return;selectedName=s;updateInspector(s,kind,g.name);render()});
+       rows.appendChild(row);
+     });
+   }
+ });
+ document.querySelectorAll('[data-toggle]').forEach(el=>el.onclick=(e)=>{e.stopPropagation();const g=groups.find(x=>x.name===el.dataset.toggle);g.open=!g.open;render()});
+ document.querySelectorAll('[data-check]').forEach(el=>el.onclick=(e)=>{e.stopPropagation();const key=el.dataset.check;checked.has(key)?checked.delete(key):checked.add(key);document.getElementById('selectionCount').textContent=`${[...checked].filter(x=>!x.startsWith('group:')).length} 项已选择`;render()});
+}
+function updateInspector(name,kind='match',group='Mattpocock Skills'){
+ document.getElementById('detailName').textContent=name;
+ const status=document.getElementById('detailStatus'); status.textContent=labels[kind].toUpperCase();
+ document.getElementById('detailPath').textContent=kind==='extra'?`/home/lee/.agents/skills/${name}`:`/home/lee/.agents/WSL-SKILL-VAULT/skills/${group.toLowerCase().replaceAll(' ','-')}/${name}`;
+ document.getElementById('frontmatter').textContent=`name: ${name}\ndescription: Skill definition for ${name}.\ncategory: execution\ntags: [skill, agent, workflow]`;
+ document.getElementById('repoPresence').textContent=kind==='extra'?'Missing':'Present';
+ document.getElementById('agentPresence').textContent=kind==='missing'?'Missing':'Present';
+ document.getElementById('repoPath').textContent=kind==='extra'?'—':`/vault/.../${name}`;
+ document.getElementById('agentPath').textContent=kind==='missing'?'—':`~/.agents/skills/${name}`;
+}
+search.addEventListener('input',render);render();
+</script>
+</body>
+</html>
