@@ -1,7 +1,6 @@
 import type { AgentConfig, AgentScan, ComparisonResult, HostKind, LinkDeletePreflight, LinkExecutionResult, LinkPreflight, LinkRecord, LinkScan, LinkSpec, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
 
-const API_PORT = import.meta.env.VITE_API_PORT || "8787"
-const API_ROOT = `http://${window.location.hostname || "127.0.0.1"}:${API_PORT}/api`
+const API_ROOT = "/api"
 
 export interface InitResponse {
   schemaVersion: 1

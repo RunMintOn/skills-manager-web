@@ -56,10 +56,14 @@ function sendJson(response: ServerResponse, status: number, value: JsonValue): v
   response.statusCode = status
   response.setHeader("Content-Type", "application/json; charset=utf-8")
   response.setHeader("Cache-Control", "no-store")
-  response.setHeader("Access-Control-Allow-Origin", "*")
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type")
-  response.setHeader("Access-Control-Allow-Methods", "GET,PUT,POST,OPTIONS")
   response.end(JSON.stringify(value))
+}
+
+// 只服务本机浏览器。校验 Host 头，拒绝 DNS rebinding 把 API 映射成攻击者域名。
+function trustedHost(header: string | undefined): boolean {
+  if (!header) return false
+  const hostname = header.toLowerCase().split(":")[0]!
+  return hostname === "127.0.0.1" || hostname === "localhost"
 }
 
 function errorJson(message: string, code = "request-error"): Record<string, unknown> {
@@ -368,8 +372,8 @@ async function handleAgentLinkDelete(request: IncomingMessage, response: ServerR
 
 async function handleApi(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   const method = request.method ?? "GET"
-  if (method === "OPTIONS") {
-    sendJson(response, 204, {})
+  if (!trustedHost(request.headers.host)) {
+    sendJson(response, 403, errorJson("untrusted host header", "untrusted-host"))
     return
   }
   try {
