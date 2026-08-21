@@ -98,6 +98,30 @@ describe("comparison and preview plan", () => {
     expect(comparison.rows.find((row) => row.skillKey === "unicode-helper")?.state).toBe("pending")
   })
 
+  it("does not match a same-named skill from another collection when the entry is keyed to a different skill", async () => {
+    const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-dupe-name-test-"))
+    try {
+      // 两个同名（同 id）skill 分布在不同 collection。
+      await mkdir(nodePath.join(root, "vault", "coll-a", "prototype"), { recursive: true })
+      await writeFile(nodePath.join(root, "vault", "coll-a", "prototype", "SKILL.md"), "---\nname: prototype\n---\n")
+      await mkdir(nodePath.join(root, "vault", "coll-b", "prototype"), { recursive: true })
+      await writeFile(nodePath.join(root, "vault", "coll-b", "prototype", "SKILL.md"), "---\nname: prototype\n---\n")
+      // Agent 只加载了 coll-a 的那个，且 skillKey 指向 coll-a 的路径。
+      await mkdir(nodePath.join(root, "agent"))
+      await symlink(nodePath.join(root, "vault", "coll-a", "prototype"), nodePath.join(root, "agent", "prototype"), "dir")
+      const vault = await scanVault({ path: nodePath.join(root, "vault"), host: "wsl" })
+      const agent = await scanAgent({ id: "a", name: "A", host: "wsl", path: nodePath.join(root, "agent") }, vault)
+      const comparison = buildComparison(vault, agent)
+      const rowA = comparison.rows.find((row) => row.skillKey === "coll-a/prototype")
+      const rowB = comparison.rows.find((row) => row.skillKey === "coll-b/prototype")
+      expect(agent.entries[0]?.skillKey).toBe("coll-a/prototype")
+      // 被加载的 coll-a 是 linked；未加载的 coll-b 仍是 pending，不能被同名条目冒认。
+      expect(rowA?.state).toBe("linked")
+      expect(rowB?.state).toBe("pending")
+      expect(rowB?.agentEntryPaths).toEqual([])
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it("produces typed, not-run operations and never mutates the filesystem", async () => {
     const vault = await scanVault({ path: fixturePath("vault"), host: "wsl" })
     const config = createFixtureConfig(); const agent = await scanAgent(config.agents[0]!, vault)

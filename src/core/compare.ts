@@ -4,7 +4,8 @@ const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 function stateOf(entry: AgentEntry): ComparisonState { return entry.kind === "repo-link" ? "linked" : entry.kind === "repo-copy" ? "local-dir" : entry.kind }
 export function buildComparison(vault: VaultScan, agent: AgentScan): ComparisonResult {
   const byKey = new Map<string, AgentEntry[]>(); const byName = new Map<string, AgentEntry[]>()
-  for (const entry of agent.entries) { if (entry.skillKey) byKey.set(entry.skillKey, [...(byKey.get(entry.skillKey) ?? []), entry]); byName.set(entry.name, [...(byName.get(entry.name) ?? []), entry]) }
+  // 已有 skillKey 的条目只按 key 归属；无 skillKey 的旧式条目才按名字匹配，避免同名双份 skill 被错误关联。
+  for (const entry of agent.entries) { if (entry.skillKey) byKey.set(entry.skillKey, [...(byKey.get(entry.skillKey) ?? []), entry]); else byName.set(entry.name, [...(byName.get(entry.name) ?? []), entry]) }
   const rows: ComparisonRow[] = vault.skills.map((skill) => {
     const linked = byKey.get(skill.relativePath) ?? []; const sameName = byName.get(skill.id) ?? []; const risks: string[] = []; let state: ComparisonState
     if (skill.validity === "invalid") { state = "invalid"; risks.push(...skill.issues.map((item) => item.message)) }
