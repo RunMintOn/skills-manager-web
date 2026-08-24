@@ -117,7 +117,7 @@ foreach ($child in $children) {
   if ($isReparsePoint) {
     $rawTarget = @($child.Target | Select-Object -First 1)[0]
     if ($rawTarget) {
-      try { $targetPath = if ([System.IO.Path]::IsPathRooted([string]$rawTarget)) { [System.IO.Path]::GetFullPath([string]$rawTarget) } else { [System.IO.Path]::GetFullPath((Join-Path -Path $child.DirectoryName -ChildPath ([string]$rawTarget))) } } catch { }
+      try { $candidateTargetPath = if ([System.IO.Path]::IsPathRooted([string]$rawTarget)) { [System.IO.Path]::GetFullPath([string]$rawTarget) } else { [System.IO.Path]::GetFullPath((Join-Path -Path $child.DirectoryName -ChildPath ([string]$rawTarget))) }; if (Test-Path -LiteralPath $candidateTargetPath -ErrorAction Stop) { $targetPath = $candidateTargetPath } } catch { }
     }
     if ($child.LinkType -eq 'Junction') { $linkType = 'junction' } elseif ($child.LinkType -eq 'SymbolicLink') { $linkType = 'symlink' } else { $linkType = 'other' }
   }

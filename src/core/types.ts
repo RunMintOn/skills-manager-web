@@ -35,6 +35,8 @@ export interface MirrorSyncConfig {
 }
 export interface SkillManagerConfig {
   schemaVersion: 1
+  /** When enabled, path fields choose a Host from unambiguous absolute path syntax. */
+  autoDetectPathHost?: boolean
   vault: VaultConfig
   agents: AgentConfig[]
   commonPaths?: CommonPath[]

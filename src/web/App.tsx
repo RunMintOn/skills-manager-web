@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react"
 import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultScan, VaultSkill } from "../core/types.ts"
 import { api, type InitResponse } from "./api"
+import { detectPathHost, isAbsolutePathForHost } from "../core/path-host.ts"
 import { LinksWorkbench } from "./LinksWorkbench"
 import { MirrorSyncWorkbench } from "./MirrorSyncWorkbench"
 import { SkillMatrix } from "./SkillMatrix"
@@ -12,7 +13,7 @@ type AgentDraft = { id: string; name: string; host: HostKind; path: string }
 
 const stateLabels: Record<string, string> = { linked: "已链接", pending: "待链接", "local-dir": "本地目录", "external-link": "外部链接", "broken-link": "断链", invalid: "无效", valid: "有效" }
 const kindLabels: Record<string, string> = { "repo-link": "repo-link · Vault", "repo-copy": "repo-copy · 拷贝", "local-dir": "local-dir · 本地目录", "external-link": "external-link · 外部", "broken-link": "broken-link · 断链", invalid: "invalid · 无效" }
-const emptyConfig: SkillManagerConfig = { schemaVersion: 1, vault: { path: "", host: "wsl" }, agents: [] }
+const emptyConfig: SkillManagerConfig = { schemaVersion: 1, autoDetectPathHost: true, vault: { path: "", host: "wsl" }, agents: [] }
 
 function entryForSkill(entries: AgentEntry[], skill: VaultSkill): AgentEntry | undefined { return entries.find((entry) => entry.skillKey === skill.relativePath || (!entry.skillKey && entry.name === skill.directoryName)) }
 function displayError(error: unknown): string { return error instanceof Error ? error.message : String(error) }
@@ -33,10 +34,6 @@ function typedOperation(plan: SyncPlan["operations"][number]): string {
   return `fs.promises.symlink args: ${JSON.stringify(plan.link.fsArgs)}`
 }
 
-// 与 core/config.ts 的 resolvePath 保持同一套绝对路径判断，避免 Windows 风格路径被当成相对路径拼接。
-function pathMatchesHost(hostKind: HostKind, value: string): boolean {
-  return hostKind === "windows" ? /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\") : value.startsWith("/")
-}
 function pathStyleHint(hostKind: HostKind): string {
   return hostKind === "windows"
     ? "Windows 主机需要 C:\\... 或 \\\\server\\share 形式的路径"
@@ -57,6 +54,7 @@ export function App(): ReactElement {
   })
   const [init, setInit] = useState<InitResponse | null>(null)
   const [config, setConfig] = useState<SkillManagerConfig>(emptyConfig)
+  const autoDetectPathHost = config.autoDetectPathHost !== false
   const [vault, setVault] = useState<VaultScan | null>(null)
   const [agent, setAgent] = useState<AgentScan | null>(null)
   const [comparison, setComparison] = useState<ComparisonResult | null>(null)
@@ -157,12 +155,20 @@ export function App(): ReactElement {
       setError(displayError(saveError))
     }
   }
+  function hostForPath(path: string, fallback: HostKind): HostKind {
+    return autoDetectPathHost ? detectPathHost(path) ?? fallback : fallback
+  }
+  function commitAutoDetectPathHost(enabled: boolean): void {
+    if (enabled === autoDetectPathHost) return
+    void saveConfig({ ...config, autoDetectPathHost: enabled })
+  }
   function commitVaultPath(nextPath: string): void {
     const path = nextPath.trim()
+    const host = hostForPath(path, config.vault.host)
     if (!path) { setError("Vault 路径不能为空"); return }
-    if (path === config.vault.path) return
-    if (!pathMatchesHost(config.vault.host, path)) { setError(`路径风格与主机不匹配：${pathStyleHint(config.vault.host)}`); return }
-    void saveConfig({ ...config, vault: { ...config.vault, path } })
+    if (path === config.vault.path && host === config.vault.host) return
+    if (!isAbsolutePathForHost(host, path)) { setError(`路径风格与主机不匹配：${pathStyleHint(host)}`); return }
+    void saveConfig({ ...config, vault: { path, host } })
   }
   function commitVaultHost(nextHost: HostKind): void {
     if (nextHost === config.vault.host) return
@@ -173,14 +179,17 @@ export function App(): ReactElement {
       setError("Agent 的 ID、名称和路径都不能为空")
       return
     }
-    if (!pathMatchesHost(agentModal.host, agentModal.path.trim())) {
-      setError(`路径风格与主机不匹配：${pathStyleHint(agentModal.host)}`)
+    const path = agentModal.path.trim()
+    const host = hostForPath(path, agentModal.host)
+    if (!isAbsolutePathForHost(host, path)) {
+      setError(`路径风格与主机不匹配：${pathStyleHint(host)}`)
       return
     }
-    const editing = config.agents.some(function (item): boolean { return item.id === agentModal.id })
+    const savedAgent: AgentDraft = { ...agentModal, path, host }
+    const editing = config.agents.some(function (item): boolean { return item.id === savedAgent.id })
     const agents = editing
-      ? config.agents.map(function (item): AgentConfig { return item.id === agentModal.id ? agentModal : item })
-      : [...config.agents, agentModal]
+      ? config.agents.map(function (item): AgentConfig { return item.id === savedAgent.id ? savedAgent : item })
+      : [...config.agents, savedAgent]
     await saveConfig({ ...config, agents, selectedAgentId: agentModal.id })
     setAgentModal(null)
   }
@@ -332,6 +341,7 @@ export function App(): ReactElement {
               <input aria-label="Vault 路径" title="直接编辑路径，回车或失焦保存（只写 data/config.json）" value={vaultPathDraft} placeholder="未配置 Vault" onChange={(event) => setVaultPathDraft(event.target.value)} onBlur={(event) => commitVaultPath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { commitVaultPath(event.currentTarget.value); event.currentTarget.blur() } }} />
               <button className="repo-copy-btn" aria-label="复制 Vault 路径" title="复制 Vault 路径" onClick={() => void copyPath(config.vault.path)}>⧉</button>
             </div>
+            <div className="repo-options"><label><input type="checkbox" checked={autoDetectPathHost} onChange={(event) => commitAutoDetectPathHost(event.target.checked)} />自动识别路径类型</label><label>Host<select value={config.vault.host} onChange={(event) => commitVaultHost(event.target.value as HostKind)}><option value="wsl">wsl</option><option value="windows">windows</option></select></label></div>
           </div>
           <div className="agent-list">
             {loading && <div className="list-empty">正在读取 Agent…</div>}
@@ -428,7 +438,7 @@ export function App(): ReactElement {
       </main>
     )}
 
-    {agentModal && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => setAgentModal({ ...agentModal, path: event.target.value })} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button className="btn" onClick={() => setAgentModal(null)}>取消</button><button className="btn primary" onClick={() => void saveAgent()}>保存</button></div></div></div>}
+    {agentModal && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => { const path = event.target.value; setAgentModal({ ...agentModal, path, host: hostForPath(path, agentModal.host) }) }} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button className="btn" onClick={() => setAgentModal(null)}>取消</button><button className="btn primary" onClick={() => void saveAgent()}>保存</button></div></div></div>}
     {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={(event) => { if (event.target === event.currentTarget) setPreview(null) }}><div className="modal modal-wide"><h3 id="preview-title">同步预览 · 确认后执行</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。点击确认后，后台会真实创建缺失的链接。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillKey}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} className="btn" onClick={() => setPreview(null)}>关闭</button><button className="btn primary" disabled={syncExecuting || !preview.operations.some((operation) => operation.action === "create-link")} onClick={() => void executeSync()}>{syncExecuting ? "执行中…" : "确认并执行"}</button></div></div></div>}
   </div>
 }

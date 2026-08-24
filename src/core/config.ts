@@ -2,6 +2,7 @@ import { constants } from "node:fs"
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
+import { isAbsolutePathForHost } from "./path-host.ts"
 import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, MirrorSyncConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -14,6 +15,7 @@ export function fixturePath(name: string): string {
 export function createFixtureConfig(): SkillManagerConfig {
   return {
     schemaVersion: 1,
+    autoDetectPathHost: true,
     vault: { path: fixturePath("vault"), host: "wsl" },
     agents: [{ id: "fixture-agent", name: "Fixture Agent", host: "wsl", path: fixturePath("agents/default") }],
     commonPaths: [],
@@ -91,6 +93,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
   if (!value.vault || typeof value.vault !== "object") throw new Error("vault is required")
   nonEmpty(value.vault.path, "vault.path")
   host(value.vault.host, "vault.host")
+  if (value.autoDetectPathHost !== undefined && typeof value.autoDetectPathHost !== "boolean") throw new Error("autoDetectPathHost must be a boolean")
   if (!Array.isArray(value.agents)) throw new Error("agents must be an array")
 
   const agentIds = new Set<string>()
@@ -129,6 +132,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
   }
   return {
     schemaVersion: 1,
+    ...(value.autoDetectPathHost !== undefined ? { autoDetectPathHost: value.autoDetectPathHost } : {}),
     vault: { path: value.vault.path.trim(), host: value.vault.host },
     agents,
     commonPaths,
@@ -140,10 +144,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
 }
 
 function resolvePath(value: string, hostKind: HostKind, directory: string): string {
-  const absolute = hostKind === "windows"
-    ? /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\")
-    : value.startsWith("/")
-  return absolute ? value : nodePath.resolve(directory, value)
+  return isAbsolutePathForHost(hostKind, value) ? value : nodePath.resolve(directory, value)
 }
 
 export function resolveConfig(input: SkillManagerConfig, configPath: string, exists = true): LoadedConfig {
@@ -207,6 +208,7 @@ export async function initConfig(configPath: string, force = false): Promise<Loa
 export function configForWrite(config: LoadedConfig): SkillManagerConfig {
   return {
     schemaVersion: 1,
+    ...(config.autoDetectPathHost !== undefined ? { autoDetectPathHost: config.autoDetectPathHost } : {}),
     vault: { ...config.vault },
     agents: config.agents.map(function (agent): AgentConfig { return { ...agent } }),
     commonPaths: (config.commonPaths ?? []).map(function (item): CommonPath { return { ...item } }),

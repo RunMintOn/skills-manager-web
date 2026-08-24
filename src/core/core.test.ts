@@ -8,6 +8,7 @@ import {
   buildComparison,
   buildPlanForAgent,
   convertCopyToLink,
+  detectPathHost,
   createFixtureConfig,
   createLinkOperation,
   executeDeleteLink,
@@ -16,6 +17,7 @@ import {
   preflightBatchLinks,
   preflightLink,
   scanLinkDirectory,
+  scanWindowsDirectory,
   executeMirrorSync,
   isSafeWslPath,
   planMirrorSync,
@@ -40,6 +42,11 @@ async function createWindowsTempDirectory(): Promise<{ windows: string; wsl: str
   return { windows, wsl }
 }
 
+function quotePowerShell(value: string): string { return `'${value.replaceAll("'", "''")}'` }
+async function createWindowsJunction(linkPath: string, targetPath: string): Promise<void> {
+  await execFileAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `$ErrorActionPreference = 'Stop'; New-Item -ItemType Junction -Path ${quotePowerShell(linkPath)} -Target ${quotePowerShell(targetPath)} | Out-Null`])
+}
+
 describe("frontmatter and safe path boundaries", () => {
   it("parses scalar fields without evaluating YAML", () => {
     const parsed = parseFrontmatter("---\nname: '中文 skill'\ndescription: |\n  first line\n  second line\n---\nbody")
@@ -55,6 +62,15 @@ describe("frontmatter and safe path boundaries", () => {
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "中文 skill")).not.toThrow()
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "../escape")).toThrow()
     expect(() => createLinkOperation({ vaultHost: "windows", agentHost: "wsl", targetPath: "C:\\\\Vault\\skill", linkPath: "/tmp/skill" })).not.toThrow()
+  })
+
+  it("detects only unambiguous absolute Windows and WSL paths", () => {
+    expect(detectPathHost(" C:\\Users\\lee\\skills ")).toBe("windows")
+    expect(detectPathHost("\\\\server\\share\\skills")).toBe("windows")
+    expect(detectPathHost("/home/lee/skills")).toBe("wsl")
+    expect(detectPathHost("relative/skills")).toBeUndefined()
+    expect(detectPathHost("C:relative\\skills")).toBeUndefined()
+    expect(detectPathHost("")).toBeUndefined()
   })
 })
 
@@ -204,6 +220,44 @@ describe("real generic link service", () => {
   })
 })
 
+describe("native Windows link scanning", () => {
+  it("distinguishes an active Junction from one whose target was deleted in every scan view", async () => {
+    const root = await createWindowsTempDirectory()
+    try {
+      const agentPath = nodePath.join(root.wsl, "agent")
+      const activeTargetPath = nodePath.join(root.wsl, "active-target")
+      const danglingTargetPath = nodePath.join(root.wsl, "dangling-target")
+      const windowsAgentPath = nodePath.win32.join(root.windows, "agent")
+      const windowsActiveTargetPath = nodePath.win32.join(root.windows, "active-target")
+      const windowsDanglingTargetPath = nodePath.win32.join(root.windows, "dangling-target")
+      await mkdir(agentPath, { recursive: true })
+      await mkdir(activeTargetPath, { recursive: true })
+      await mkdir(danglingTargetPath, { recursive: true })
+      await createWindowsJunction(nodePath.win32.join(windowsAgentPath, "active"), windowsActiveTargetPath)
+      await createWindowsJunction(nodePath.win32.join(windowsAgentPath, "dangling"), windowsDanglingTargetPath)
+      await rm(danglingTargetPath, { recursive: true, force: true })
+
+      const native = await scanWindowsDirectory({ path: windowsAgentPath, recursive: false })
+      expect(native.entries).toHaveLength(2)
+      expect(native.entries.find((entry) => entry.name === "active")).toMatchObject({ isReparsePoint: true, linkType: "junction", rawTarget: windowsActiveTargetPath, targetPath: windowsActiveTargetPath })
+      expect(native.entries.find((entry) => entry.name === "dangling")).toMatchObject({ isReparsePoint: true, linkType: "junction", rawTarget: windowsDanglingTargetPath })
+      expect(native.entries.find((entry) => entry.name === "dangling")?.targetPath).toBeUndefined()
+
+      const links = await scanLinkDirectory({ host: "windows", path: windowsAgentPath })
+      expect(links.entries).toHaveLength(2)
+      expect(links.entries.find((entry) => entry.name === "active")).toMatchObject({ kind: "windows-junction", targetStatus: "exists", targetPath: windowsActiveTargetPath, canDelete: true })
+      expect(links.entries.find((entry) => entry.name === "dangling")).toMatchObject({ kind: "windows-junction", targetStatus: "broken", canDelete: true })
+      expect(links.entries.find((entry) => entry.name === "dangling")?.targetPath).toBeUndefined()
+
+      const agent = await scanAgent({ id: "windows-agent", name: "Windows Agent", host: "windows", path: windowsAgentPath }, { host: "windows", canonicalPath: root.windows, skills: [] } as never)
+      expect(agent.entries).toHaveLength(2)
+      expect(agent.entries.find((entry) => entry.name === "active")).toMatchObject({ kind: "repo-link", targetPath: windowsActiveTargetPath })
+      expect(agent.entries.find((entry) => entry.name === "dangling")).toMatchObject({ kind: "broken-link" })
+      expect(agent.entries.find((entry) => entry.name === "dangling")?.targetPath).toBeUndefined()
+    } finally { await rm(root.wsl, { recursive: true, force: true }) }
+  })
+})
+
 describe("config validation", () => {
   it("requires explicit schema, hosts, and unique agent IDs", () => {
     expect(() => validateConfig({ schemaVersion: 1, vault: { path: "/tmp/vault", host: "wsl" }, agents: [{ id: "a", name: "A", host: "wsl", path: "/tmp/a" }, { id: "a", name: "again", host: "wsl", path: "/tmp/b" }] })).toThrow("duplicate agent id")
@@ -221,16 +275,19 @@ describe("config validation", () => {
     expect(vaultConfigForHost(loaded, "wsl")).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
   })
 
-  it("accepts link records and last scan path", () => {
+  it("accepts link records, last scan path, and automatic path detection preference", () => {
     const config = validateConfig({
       schemaVersion: 1,
       vault: { path: "/tmp/vault", host: "wsl" },
       agents: [{ id: "a", name: "A", host: "wsl", path: "/tmp/a" }],
       links: [{ skill: "ask-matt", collection: "01_matt-skills", agentId: "a" }],
       lastScanPath: "/home/lee/links",
+      autoDetectPathHost: false,
     })
     expect(config.links).toEqual([{ skill: "ask-matt", collection: "01_matt-skills", agentId: "a" }])
     expect(config.lastScanPath).toBe("/home/lee/links")
+    expect(config.autoDetectPathHost).toBe(false)
+    expect(() => validateConfig({ schemaVersion: 1, vault: { path: "/tmp/vault", host: "wsl" }, agents: [], autoDetectPathHost: "yes" })).toThrow("autoDetectPathHost must be a boolean")
   })
 })
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react"
 import type { BatchLinkPreflight, CommonPath, HostKind, LinkEntry, LinkPreflight, LinkScan, LinkSpec, SkillManagerConfig } from "../core/types.ts"
 import { api } from "./api"
+import { detectPathHost } from "../core/path-host.ts"
 
 type Props = {
   config: SkillManagerConfig
@@ -51,6 +52,7 @@ type BatchPreflightPanelProps = { preflight: BatchLinkPreflight; busy: boolean; 
 type CommonPathModalProps = {
   draft: CommonPath
   editing: boolean
+  autoDetectPathHost: boolean
   onChange: (draft: CommonPath) => void
   onClose: () => void
   onSave: () => void
@@ -210,13 +212,13 @@ function BatchPreflightPanel({ preflight, busy, onClose, onCreate }: BatchPrefli
   </section>
 }
 
-function CommonPathModal({ draft, editing, onChange, onClose, onSave }: CommonPathModalProps): ReactElement {
+function CommonPathModal({ draft, editing, autoDetectPathHost, onChange, onClose, onSave }: CommonPathModalProps): ReactElement {
   return <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className="modal">
       <h3>{editing ? "编辑常用路径" : "添加常用路径"}</h3>
       <label>名称<input autoFocus value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} /></label>
       <label>主机<HostSelect value={draft.host} onChange={(host) => onChange({ ...draft, host })} /></label>
-      <label>路径<input value={draft.path} onChange={(event) => onChange({ ...draft, path: event.target.value })} /></label>
+      <label>路径<input value={draft.path} onChange={(event) => { const path = event.target.value; onChange({ ...draft, path, host: autoDetectPathHost ? detectPathHost(path) ?? draft.host : draft.host }) }} /></label>
       <p className="hint">常用路径只保存到应用配置，不会创建、删除或修改该路径。</p>
       <div className="modal-actions"><button onClick={onClose}>取消</button><button className="primary-button" onClick={onSave}>保存</button></div>
     </div>
@@ -237,10 +239,20 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
   const [commonEditor, setCommonEditor] = useState<CommonPath | null>(null)
   const commonPaths = config.commonPaths ?? []
   const scanEntries = scan?.entries ?? []
+  const autoDetectPathHost = config.autoDetectPathHost !== false
+
+  function hostForPath(path: string, fallback: HostKind): HostKind {
+    return autoDetectPathHost ? detectPathHost(path) ?? fallback : fallback
+  }
+  function updateTargetPath(targetPath: string): void { updateSpec({ targetPath, targetHost: hostForPath(targetPath, spec.targetHost) }) }
+  function updateLinkPath(linkPath: string): void { updateSpec({ linkPath, linkHost: hostForPath(linkPath, spec.linkHost) }) }
+  function updateScanPath(path: string): void { setScanPath(path); setScanHost((host) => hostForPath(path, host)) }
 
   useEffect(function restoreLastScanPath(): void {
-    if (config.lastScanPath && !scanPath) setScanPath(config.lastScanPath)
-  }, [config.lastScanPath])
+    if (!config.lastScanPath || scanPath) return
+    setScanPath(config.lastScanPath)
+    setScanHost((host) => hostForPath(config.lastScanPath!, host))
+  }, [config.lastScanPath, autoDetectPathHost, scanPath])
 
   useEffect(function registerEscapeHandler(): () => void {
     function onKeyDown(event: KeyboardEvent): void {
@@ -461,17 +473,17 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
         <div className="panel-heading"><span>创建链接</span><span className="result-count">目标与链接路径必须明确</span></div>
         <div className="link-form-content">
           <label className="batch-mode-toggle"><input type="checkbox" checked={batchMode} onChange={(event) => { setBatchMode(event.target.checked); setPreflight(null); setBatchPreflight(null) }} />批量链接源文件夹中的 Skill 子目录</label>
-          <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={(targetPath) => updateSpec({ targetPath })} onFill={fillTarget} />
-          <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={(linkPath) => updateSpec({ linkPath })} onFill={fillLink} />
+          <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={updateTargetPath} onFill={fillTarget} />
+          <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={updateLinkPath} onFill={fillLink} />
           <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpec); setPreflight(null); setBatchPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : batchMode ? "预检批量链接" : "预检链接"}</button></div>
           <p className="safety-note">{batchMode ? "只读取源文件夹直接子目录中包含 SKILL.md 的目录，并将它们平铺链接到目标文件夹。" : "预检会确认目标存在、链接路径不存在、父目录可用，并阻止覆盖普通文件或目录。"}</p>
         </div>
       </section>
-      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={setScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} onDeleteBroken={() => void deleteBrokenEntries()} />
+      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={updateScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} onDeleteBroken={() => void deleteBrokenEntries()} />
       <CommonPathsPanel paths={commonPaths} onAdd={() => setCommonEditor({ id: `path-${Date.now()}`, name: "", host: "wsl", path: "" })} onFillTarget={fillTarget} onFillLink={fillLink} onScan={prepareScan} onCopy={(item) => void copyPath(item)} onEdit={setCommonEditor} onDelete={(item) => void removeCommonPath(item)} />
     </section>
     {preflight && <PreflightPanel preflight={preflight} busy={busy} onClose={() => setPreflight(null)} onCreate={() => void create()} />}
     {batchPreflight && <BatchPreflightPanel preflight={batchPreflight} busy={busy} onClose={() => setBatchPreflight(null)} onCreate={() => void createBatch()} />}
-    {commonEditor && <CommonPathModal draft={commonEditor} editing={commonPaths.some((item) => item.id === commonEditor.id)} onChange={setCommonEditor} onClose={() => setCommonEditor(null)} onSave={() => void saveCommonPath()} />}
+    {commonEditor && <CommonPathModal draft={commonEditor} editing={commonPaths.some((item) => item.id === commonEditor.id)} autoDetectPathHost={autoDetectPathHost} onChange={setCommonEditor} onClose={() => setCommonEditor(null)} onSave={() => void saveCommonPath()} />}
   </main>
 }

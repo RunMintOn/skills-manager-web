@@ -1,4 +1,5 @@
 export * from "./types.ts"
+export * from "./path-host.ts"
 export * from "./host.ts"
 export * from "./frontmatter.ts"
 export * from "./link-plan.ts"
