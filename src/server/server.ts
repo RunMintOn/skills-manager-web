@@ -6,15 +6,18 @@ import { fileURLToPath } from "node:url"
 import {
   appendSafeChild,
   buildComparison,
+  preflightBatchLinks,
   buildPlanForAgent,
   configForWrite,
   convertCopyToLink,
   DEFAULT_CONFIG_PATH,
   executeDeleteLink,
   executeLink,
+  executeMirrorSync,
   findVaultSkillById,
   getHostPathAdapter,
   parseFrontmatter,
+  planMirrorSync,
   preflightDeleteLink,
   preflightLink,
   readConfigOrFixture,
@@ -22,16 +25,20 @@ import {
   scanLinkDirectory,
   scanVault,
   scanWorkspace,
+  vaultConfigForHost,
   windowsPathToWsl,
   writeConfig,
   type AgentConfig,
+  type BatchLinkExecution,
   type HostKind,
   type LinkRecord,
   type LinkSpec,
   type LoadedConfig,
+  type MirrorSyncConfig,
   type SkillManagerConfig,
   type SyncPlan,
   type SyncPlanOperation,
+  type VaultConfig,
 } from "../core/index.ts"
 
 const HOST = "127.0.0.1"
@@ -161,7 +168,7 @@ async function handleAgent(response: ServerResponse, id: string): Promise<void> 
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const vault = await scanVault(loaded.vault)
+  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
   const agent = await scanAgent(agentConfig, vault)
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, agent, comparison: buildComparison(vault, agent), execution: "read-only" })
 }
@@ -178,6 +185,30 @@ async function handleLinkCreate(request: IncomingMessage, response: ServerRespon
     ? await executeLink(spec)
     : { schemaVersion: JSON_SCHEMA, attempted: false, success: false, spec: preflight.spec, message: "链接未创建", error: preflight.risks.join("；") || "预检未通过" }
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, preflight, result })
+}
+
+async function handleBatchLinkPreflight(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const spec = linkSpecBody(await readBody(request))
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, preflight: await preflightBatchLinks(spec) })
+}
+
+async function handleBatchLinkCreate(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = objectBody(await readBody(request))
+  if (body.confirm !== true) throw new Error("batch link execution requires confirm=true")
+  const spec = linkSpecBody(body)
+  const preflight = await preflightBatchLinks(spec)
+  const results: BatchLinkExecution["results"] = []
+  for (const item of preflight.items) {
+    const itemSpec = item.preflight.spec
+    if (!item.preflight.ready) {
+      results.push({ name: item.name, targetPath: itemSpec.targetPath, linkPath: itemSpec.linkPath, action: "blocked", success: false, attempted: false, message: "已阻止", error: item.preflight.risks.join("；") || "预检未通过" })
+      continue
+    }
+    const result = await executeLink(itemSpec)
+    results.push({ name: item.name, targetPath: result.spec.targetPath, linkPath: result.spec.linkPath, action: result.success ? "created" : "failed", success: result.success, attempted: result.attempted, message: result.message, ...(result.error ? { error: result.error } : {}) })
+  }
+  const execution = results.some(function (item): boolean { return item.attempted && !item.success }) ? "failed" : "completed"
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, execution, preflight, results })
 }
 
 async function handleLinkDelete(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -198,9 +229,9 @@ async function handleLinkScan(request: IncomingMessage, response: ServerResponse
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, scan })
 }
 
-async function executeSyncOperation(operation: SyncPlanOperation, loaded: LoadedConfig, agentConfig: AgentConfig): Promise<SyncResult> {
+async function executeSyncOperation(operation: SyncPlanOperation, vault: VaultConfig, agentConfig: AgentConfig): Promise<SyncResult> {
   if (operation.action === "create-link" && operation.targetPath && operation.linkPath) {
-    const result = await executeLink({ targetHost: loaded.vault.host, targetPath: operation.targetPath, linkHost: agentConfig.host, linkPath: operation.linkPath })
+    const result = await executeLink({ targetHost: vault.host, targetPath: operation.targetPath, linkHost: agentConfig.host, linkPath: operation.linkPath })
     return { id: operation.id, skillKey: operation.skillKey, action: operation.action, success: result.success, attempted: result.attempted, message: result.message, ...(result.error ? { error: result.error } : {}) }
   }
   if (operation.action === "already-linked") {
@@ -244,16 +275,17 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
-  const plan = buildPlanForAgent({ config: loaded, vault: snapshot.vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
+  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const fallback = vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
+  const plan = buildPlanForAgent({ config: loaded, vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   const results: SyncResult[] = []
-  for (const operation of plan.operations) results.push(await executeSyncOperation(operation, loaded, agentConfig))
+  for (const operation of plan.operations) results.push(await executeSyncOperation(operation, vault, agentConfig))
   // 链接记录：创建成功的操作写入来源集合（真相 LinkRecord 语义，flattening 不丢 provenance）。
   const nextLinks = [...(loaded.links ?? [])]
   plan.operations.forEach(function (operation, index): void {
     const result = results[index]
     if (!result?.success || operation.action !== "create-link") return
-    const skill = snapshot.vault.skills.find(function (item): boolean { return item.relativePath === operation.skillKey })
+    const skill = vault.skills.find(function (item): boolean { return item.relativePath === operation.skillKey })
     if (!skill) return
     const record: LinkRecord = { skill: skill.relativePath, collection: skill.collection, agentId: agentConfig.id }
     if (!nextLinks.some(function (item): boolean { return item.agentId === record.agentId && item.skill === record.skill })) nextLinks.push(record)
@@ -261,8 +293,8 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
   if (nextLinks.length !== (loaded.links ?? []).length) {
     await writeConfig(configPath, configForWrite({ ...loaded, links: nextLinks }))
   }
-  const refreshedAgent = await scanAgent(agentConfig, snapshot.vault)
-  const refreshedComparison = buildComparison(snapshot.vault, refreshedAgent)
+  const refreshedAgent = await scanAgent(agentConfig, vault)
+  const refreshedComparison = buildComparison(vault, refreshedAgent)
   sendJson(response, 200, {
     schemaVersion: JSON_SCHEMA,
     execution: results.every(function (item): boolean { return item.success }) ? "completed" : "failed",
@@ -279,13 +311,46 @@ async function handlePlan(request: IncomingMessage, response: ServerResponse): P
   const snapshot = await scanWorkspace(loaded)
   const agentId = typeof body.agentId === "string" ? body.agentId : selectedAgentId(loaded)
   const agent = snapshot.agents.find(function (item): boolean { return item.id === agentId })
-  if (!agent) {
+  const agentConfig = loaded.agents.find(function (item): boolean { return item.id === agentId })
+  if (!agent || !agentConfig) {
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const fallback = snapshot.vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
-  const plan = buildPlanForAgent({ config: loaded, vault: snapshot.vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
+  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const fallback = vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
+  const plan = buildPlanForAgent({ config: loaded, vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, plan, execution: "not-run" })
+}
+
+function configuredMirrorSync(loaded: LoadedConfig): MirrorSyncConfig {
+  if (!loaded.mirrorSync) throw new Error("请先保存 Windows 源 Vault 与 WSL 镜像路径")
+  return loaded.mirrorSync
+}
+
+async function handleMirrorSource(response: ServerResponse): Promise<void> {
+  const loaded = await loadConfig()
+  const sync = configuredMirrorSync(loaded)
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, vault: await scanVault(sync.source), execution: "read-only" })
+}
+
+async function handleMirrorPlan(response: ServerResponse): Promise<void> {
+  const loaded = await loadConfig()
+  const plan = await planMirrorSync(configuredMirrorSync(loaded))
+  sendJson(response, 200, { schemaVersion: JSON_SCHEMA, plan, execution: "not-run" })
+}
+
+async function handleMirrorExecute(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = objectBody(await readBody(request))
+  if (body.confirm !== true) throw new Error("mirror sync execution requires confirm=true")
+  const loaded = await loadConfig()
+  const preview = await planMirrorSync(configuredMirrorSync(loaded))
+  if (!preview.ready) {
+    sendJson(response, 200, { schemaVersion: JSON_SCHEMA, execution: "blocked", plan: preview, results: [] })
+    return
+  }
+  const result = await executeMirrorSync(preview)
+  const execution = result.results.every(function (item): boolean { return item.success }) ? "completed" : "failed"
+  sendJson(response, 200, { ...result, execution })
 }
 
 async function handleAgentLinkConvert(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -313,7 +378,7 @@ async function handleAgentLinkConvert(request: IncomingMessage, response: Server
     sendJson(response, 400, errorJson(`无效 skill：目录名与 SKILL.md 的 name 不一致，不能转换。`, "invalid-skill"))
     return
   }
-  const vault = await scanVault(loaded.vault)
+  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
   const skill = findVaultSkillById(vault, name)
   if (!skill) {
     sendJson(response, 400, errorJson(`无法识别 ${name} 的来源，不能转换（它不在 vault 中）。`, "not-in-vault"))
@@ -388,8 +453,13 @@ async function handleApi(request: IncomingMessage, response: ServerResponse, url
     if (agentMatch && method === "GET") return await handleAgent(response, decodeURIComponent(agentMatch[1]!))
     if (url.pathname === "/api/links/preflight" && method === "POST") return await handleLinkPreflight(request, response)
     if (url.pathname === "/api/links/create" && method === "POST") return await handleLinkCreate(request, response)
+    if (url.pathname === "/api/links/batch-preflight" && method === "POST") return await handleBatchLinkPreflight(request, response)
+    if (url.pathname === "/api/links/batch-create" && method === "POST") return await handleBatchLinkCreate(request, response)
     if (url.pathname === "/api/links/delete" && method === "POST") return await handleLinkDelete(request, response)
     if (url.pathname === "/api/links/scan" && method === "POST") return await handleLinkScan(request, response)
+    if (url.pathname === "/api/mirror-sync/source" && method === "GET") return await handleMirrorSource(response)
+    if (url.pathname === "/api/mirror-sync/plan" && method === "POST") return await handleMirrorPlan(response)
+    if (url.pathname === "/api/mirror-sync/execute" && method === "POST") return await handleMirrorExecute(request, response)
     if (url.pathname === "/api/agent-links/convert" && method === "POST") return await handleAgentLinkConvert(request, response)
     if (url.pathname === "/api/agent-links/delete" && method === "POST") return await handleAgentLinkDelete(request, response)
     if (url.pathname === "/api/sync" && method === "POST") return await handleSync(request, response)

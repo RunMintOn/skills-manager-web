@@ -2,6 +2,7 @@ import { access, constants } from "node:fs"
 import { lstat, readFile, readdir } from "node:fs/promises"
 import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.ts"
 import { parseFrontmatter } from "./frontmatter.ts"
+import { scanWindowsDirectory } from "./windows-scan.ts"
 import type { Frontmatter, SkillIssue, VaultCollection, VaultConfig, VaultScan, VaultSkill, VaultValidationIssue } from "./types.ts"
 
 const SKILL_FILE = "SKILL.md"
@@ -14,6 +15,14 @@ const skipName = (name: string) => name === ".git" || name === "node_modules"
 const skipTopLevel = (name: string) => name.startsWith(".")
 function collectionFor(relative: string): string { const first = relative.split("/")[0]; return relative.includes("/") && first ? first : "Loose Skills" }
 export function classifyCollection(relativePath: string): string { return collectionFor(relativePath) }
+function readSkillText(content: string | undefined): { frontmatter: Frontmatter; issues: SkillIssue[] } {
+  if (content === undefined) return { frontmatter: { present: false, raw: "", fields: {}, errors: [] }, issues: [{ code: "skill-read-error", severity: "error", message: "Cannot read SKILL.md through the Windows scanner." }] }
+  const frontmatter = parseFrontmatter(content)
+  const issues: SkillIssue[] = []
+  if (!frontmatter.name) issues.push({ code: "name-missing", severity: "error", message: "SKILL.md has no non-empty name." })
+  return { frontmatter, issues }
+}
+
 async function readSkill(adapter: HostPathAdapter, directory: string): Promise<{ frontmatter: Frontmatter; issues: SkillIssue[] }> {
   const file = adapter.join(directory, SKILL_FILE)
   try {
@@ -34,8 +43,62 @@ function createSkill(adapter: HostPathAdapter, root: string, directory: string, 
   if (frontmatter.name && frontmatter.name !== directoryName) issues.push({ code: "name-mismatch", severity: "error", message: `Directory name \"${directoryName}\" does not exactly match frontmatter name \"${frontmatter.name}\".` })
   return { id: frontmatter.name ?? relativePath, relativePath, absolutePath: directory, collection: collectionFor(relativePath), directoryName, frontmatter, name: frontmatter.name, description: frontmatter.description, validity: issues.length ? "invalid" : "valid", issues }
 }
+async function scanNativeWindowsVault(config: VaultConfig): Promise<VaultScan> {
+  const adapter = getHostPathAdapter("windows")
+  const root = adapter.normalize(config.path)
+  const result: VaultScan = { path: root, host: "windows", supported: true, rootExists: false, skills: [], collections: [], duplicateIds: [], issues: [], summary: { total: 0, valid: 0, invalid: 0, collections: 0, duplicateIds: 0, errors: 0, warnings: 0, ignoredDirs: 0, issueCount: 0 } }
+  const native = await scanWindowsDirectory({ path: root, recursive: true, maxEntries: 100_000, skipDirectoryNames: [".git", "node_modules"], skipTopLevelDotDirectories: true, readFileNames: [SKILL_FILE] })
+  result.supported = native.supported
+  result.rootExists = native.rootExists
+  result.summary.ignoredDirs = native.ignoredDirectories
+  if (!native.supported) {
+    result.issues.push({ code: "vault-unreadable", severity: "error", message: native.issues.join("；") || "Windows scanner is unavailable." })
+    result.summary.issueCount = 1
+    return result
+  }
+  if (!native.rootExists) {
+    result.issues.push({ code: "vault-missing", severity: "error", message: `Vault path does not exist: ${root}` })
+    result.summary.issueCount = 1
+    return result
+  }
+  if (!native.rootIsDirectory) {
+    result.issues.push({ code: "vault-unreadable", severity: "error", message: `Vault path is not a directory: ${root}` })
+    result.summary.issueCount = 1
+    return result
+  }
+  result.canonicalPath = native.canonicalPath ?? native.rootPath
+  for (const message of native.issues) result.issues.push({ code: "vault-unreadable", severity: "error", message })
+  const discovered = native.entries.filter(function (entry): boolean { return !entry.isDirectory && !entry.isReparsePoint && entry.name === SKILL_FILE }).map(function (entry): VaultSkill {
+    const directory = adapter.resolve(entry.path, "..")
+    const read = readSkillText(entry.content)
+    return createSkill(adapter, root, directory, read.frontmatter, read.issues)
+  })
+  for (const skill of discovered) skill.canonicalPath = skill.absolutePath
+  const byId = new Map<string, VaultSkill[]>()
+  for (const skill of discovered) if (skill.frontmatter.name) byId.set(skill.frontmatter.name, [...(byId.get(skill.frontmatter.name) ?? []), skill])
+  for (const [id, group] of byId) if (group.length > 1) result.duplicateIds.push(id)
+  result.duplicateIds.sort(compare)
+  result.skills = discovered.sort((left, right) => compare(left.relativePath, right.relativePath))
+  result.issues.push(...result.skills.flatMap((skill): VaultValidationIssue[] => skill.issues.map((issue) => ({ code: issue.code, severity: issue.severity, relativePath: skill.relativePath, skillId: skill.id, message: issue.message }))))
+  const collections = new Map<string, VaultCollection>()
+  for (const skill of result.skills) {
+    const current = collections.get(skill.collection) ?? { id: skill.collection, label: skill.collection, skillIds: [], validCount: 0, invalidCount: 0 }
+    current.skillIds.push(skill.id)
+    if (skill.validity === "valid") current.validCount += 1
+    else current.invalidCount += 1
+    collections.set(skill.collection, current)
+  }
+  result.collections = [...collections.values()].sort((left, right) => compare(left.id, right.id))
+  for (const collection of result.collections) collection.skillIds.sort(compare)
+  const errors = result.issues.filter((issue) => issue.severity === "error").length
+  const warnings = result.issues.filter((issue) => issue.severity === "warning").length
+  result.summary = { total: result.skills.length, valid: result.skills.filter((skill) => skill.validity === "valid").length, invalid: result.skills.filter((skill) => skill.validity === "invalid").length, collections: result.collections.length, duplicateIds: result.duplicateIds.length, errors, warnings, ignoredDirs: result.summary.ignoredDirs, issueCount: result.issues.length }
+  return result
+}
+
 /** Read-only recursive Vault scan. It never follows directory symlinks or mutates files. */
 export async function scanVault(config: VaultConfig): Promise<VaultScan> {
+  if (config.host === "windows" && process.platform !== "win32") return scanNativeWindowsVault(config)
   const adapter = getHostPathAdapter(config.host); const root = adapter.normalize(config.path)
   const result: VaultScan = { path: root, host: config.host, supported: adapter.supportedRuntime, rootExists: false, skills: [], collections: [], duplicateIds: [], issues: [], summary: { total: 0, valid: 0, invalid: 0, collections: 0, duplicateIds: 0, errors: 0, warnings: 0, ignoredDirs: 0, issueCount: 0 } }
   if (!adapter.supportedRuntime) { result.issues.push({ code: "vault-unreadable", severity: "error", message: `The ${config.host} adapter is unavailable on runtime ${process.platform}; scan not attempted.` }); result.summary.issueCount = 1; return result }

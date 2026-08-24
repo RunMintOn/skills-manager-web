@@ -4,7 +4,11 @@ import { access, lstat, readlink, readdir, realpath, rename, rm, stat, symlink, 
 import nodePath from "node:path"
 import { appendSafeChild, getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
 import { assertSafeWindowsPath, assertSafeWslPath } from "./link-plan.ts"
+import { scanWindowsDirectory } from "./windows-scan.ts"
 import type {
+  BatchLinkItem,
+  BatchLinkPreflight,
+  BatchLinkSpec,
   HostKind,
   LinkDeletePreflight,
   LinkEntry,
@@ -289,6 +293,62 @@ export async function preflightLink(input: LinkSpec): Promise<LinkPreflight> {
   return result
 }
 
+export async function preflightBatchLinks(input: BatchLinkSpec): Promise<BatchLinkPreflight> {
+  const failed = (spec: BatchLinkSpec, message: string): BatchLinkPreflight => ({ schemaVersion: 1, spec, ready: false, items: [], risks: [message] })
+  if (input.targetHost !== input.linkHost) return failed(input, "批量链接暂时只支持相同主机类型")
+
+  let spec: BatchLinkSpec
+  try {
+    spec = {
+      ...input,
+      targetPath: normalizePath(input.targetHost, input.targetPath),
+      linkPath: normalizePath(input.linkHost, input.linkPath),
+    }
+  } catch (error) {
+    return failed(input, errorText(error))
+  }
+
+  let targetRuntime: string
+  let linkRuntime: string
+  try {
+    targetRuntime = runtimePath(spec.targetHost, spec.targetPath)
+    linkRuntime = runtimePath(spec.linkHost, spec.linkPath)
+  } catch (error) {
+    return failed(spec, errorText(error))
+  }
+  if (sameRuntimePath(targetRuntime, linkRuntime)) return failed(spec, "源文件夹和目标文件夹不能相同")
+
+  const targetInfo = await lstat(targetRuntime).catch(function (): undefined { return undefined })
+  if (!targetInfo) return failed(spec, `源文件夹不存在或无法读取：${spec.targetPath}`)
+  if (!targetInfo.isDirectory() || targetInfo.isSymbolicLink()) return failed(spec, `源路径不是普通目录：${spec.targetPath}`)
+
+  const linkInfo = await lstat(linkRuntime).catch(function (): undefined { return undefined })
+  if (!linkInfo) return failed(spec, `目标文件夹不存在或无法读取：${spec.linkPath}`)
+  if (!linkInfo.isDirectory() || linkInfo.isSymbolicLink()) return failed(spec, `目标路径不是普通目录：${spec.linkPath}`)
+
+  const children = await readdir(targetRuntime, { withFileTypes: true }).catch(function (error: unknown): import("node:fs").Dirent[] {
+    throw new Error(`无法读取源文件夹：${errorText(error)}`)
+  })
+  children.sort(function (left, right): number { return left.name.localeCompare(right.name) })
+  const items: BatchLinkItem[] = []
+  for (const child of children) {
+    if (!child.isDirectory() || child.isSymbolicLink()) continue
+    const childRuntime = nodePath.join(targetRuntime, child.name)
+    const skillInfo = await lstat(nodePath.join(childRuntime, "SKILL.md")).catch(function (): undefined { return undefined })
+    if (!skillInfo?.isFile()) continue
+    const item = await preflightLink({
+      targetHost: spec.targetHost,
+      targetPath: adapterFor(spec.targetHost).join(spec.targetPath, child.name),
+      linkHost: spec.linkHost,
+      linkPath: adapterFor(spec.linkHost).join(spec.linkPath, child.name),
+    })
+    items.push({ name: child.name, preflight: item })
+  }
+
+  const risks = items.length ? [] : ["源文件夹下没有直接包含 SKILL.md 的子目录"]
+  return { schemaVersion: 1, spec, ready: items.some(function (item): boolean { return item.preflight.ready }), items, risks }
+}
+
 function quotePowerShell(value: string): string {
   return `'${value.replaceAll("'", "''")}'`
 }
@@ -544,6 +604,38 @@ async function scanEntry(host: HostKind, root: string, runtimeRoot: string, runt
   return entry
 }
 
+async function scanNativeWindowsLinkDirectory(path: string, recursive: boolean): Promise<LinkScan> {
+  const native = await scanWindowsDirectory({ path, recursive, maxEntries: MAX_SCAN_ENTRIES })
+  const entries: LinkEntry[] = native.entries.map(function (item): LinkEntry {
+    const kind: LinkEntryKind = item.isReparsePoint
+      ? item.linkType === "junction" ? "windows-junction" : item.linkType === "symlink" ? "windows-symlink" : "unsupported-link"
+      : item.isDirectory ? "directory" : "file"
+    const targetStatus = item.isReparsePoint ? item.targetPath ? "exists" : "broken" : "not-applicable"
+    return {
+      name: item.name,
+      relativePath: nodePath.win32.relative(native.rootPath, item.path).replaceAll("\\", "/"),
+      absolutePath: item.path,
+      kind,
+      ...(item.rawTarget ? { rawTarget: item.rawTarget } : {}),
+      ...(item.targetPath ? { targetPath: item.targetPath } : {}),
+      targetStatus,
+      canDelete: item.isReparsePoint,
+    }
+  })
+  entries.sort(function (left, right): number { return left.relativePath.localeCompare(right.relativePath) })
+  return {
+    schemaVersion: 1,
+    path,
+    host: "windows",
+    recursive,
+    supported: native.supported,
+    rootExists: native.rootExists,
+    rootIsDirectory: native.rootIsDirectory,
+    entries,
+    issues: native.issues,
+  }
+}
+
 export async function scanLinkDirectory(input: { host: HostKind; path: string; recursive?: boolean }): Promise<LinkScan> {
   let path: string
   try {
@@ -561,6 +653,8 @@ export async function scanLinkDirectory(input: { host: HostKind; path: string; r
       issues: [errorText(error)],
     }
   }
+
+  if (input.host === "windows" && process.platform !== "win32") return scanNativeWindowsLinkDirectory(path, Boolean(input.recursive))
 
   let root: string
   try {

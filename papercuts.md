@@ -23,3 +23,15 @@ edit 工具精确匹配易踩坑：JS 模板字符串里的 \\\" 转义引号、
 **Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
 
 NO_PROXY 里的 127.* 通配对 curl 无效（curl 只认后缀匹配），导致本机请求走了 Clash 代理、Host 头被改写，测试结果被污染。用 curl --noproxy "*" 或把 NO_PROXY 写成 127.0.0.1
+
+## 2026-08-21T21:58:10+08:00
+
+**Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
+
+诊断接口计时命令超时后，后台启动的 node 服务子进程未随工具超时自动退出；后续应使用可控的进程组或独立端口清理。
+
+## 2026-08-24T22:31:50+08:00
+
+**Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
+
+Windows PowerShell stdout used a legacy code page, corrupting Unicode paths when consumed by WSL Node. Native bridge scripts must set Console.OutputEncoding to UTF-8.

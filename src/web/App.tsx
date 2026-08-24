@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultScan, VaultSkill } from "../core/types.ts"
 import { api, type InitResponse } from "./api"
 import { LinksWorkbench } from "./LinksWorkbench"
+import { MirrorSyncWorkbench } from "./MirrorSyncWorkbench"
 import { SkillMatrix } from "./SkillMatrix"
 
-type TopTab = "skills" | "links"
+type TopTab = "skills" | "links" | "mirror"
 type View = "repository" | "compare" | "actual"
 type ActualMode = "collection" | "kind"
 type AgentDraft = { id: string; name: string; host: HostKind; path: string }
@@ -314,13 +315,14 @@ export function App(): ReactElement {
       <nav className="nav" aria-label="主导航">
         <button className={topTab === "skills" ? "active" : ""} onClick={() => setTopTab("skills")}>技能管理</button>
         <button className={topTab === "links" ? "active" : ""} onClick={() => setTopTab("links")}>通用链接</button>
+        <button className={topTab === "mirror" ? "active" : ""} onClick={() => setTopTab("mirror")}>Vault 镜像</button>
       </nav>
       <div className="spacer" />
       <button className="icon-button" aria-label="刷新数据" title="重新加载配置与扫描结果" onClick={() => void load()}>⟳</button>
       <button className="icon-button toggle-theme" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button>
     </header>
 
-    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
+    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : topTab === "mirror" ? <MirrorSyncWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
       <main className="workspace">
         <aside className="left">
           <div className="pane-head"><span>Agent 目标</span><div className="head-actions"><button className="head-btn" title="添加 Agent" aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg></button></div></div>

@@ -2,6 +2,7 @@ import { access, constants } from "node:fs"
 import { lstat, readdir, readFile } from "node:fs/promises"
 import { getHostPathAdapter, isInside, safeRealpath, toStableRelative, type HostPathAdapter } from "./host.ts"
 import { parseFrontmatter } from "./frontmatter.ts"
+import { scanWindowsDirectory } from "./windows-scan.ts"
 import { findVaultSkillById } from "./vault.ts"
 import type { AgentConfig, AgentEntry, AgentEntryIssue, AgentScan, Frontmatter, VaultScan, VaultSkill } from "./types.ts"
 
@@ -19,8 +20,62 @@ async function readDirectoryMetadata(adapter: HostPathAdapter, path: string): Pr
     return { frontmatter, issues } } catch (error) { return { issues: [issue("invalid-skill-metadata", "error", `Cannot read Agent SKILL.md: ${error instanceof Error ? error.message : String(error)}`)] } }
 }
 function baseEntry(adapter: HostPathAdapter, root: string, name: string, absolutePath: string): Pick<AgentEntry, "name" | "relativePath" | "absolutePath"> { return { name, relativePath: toStableRelative(adapter, adapter.relative(root, absolutePath)), absolutePath } }
+function readDirectoryMetadataText(adapter: HostPathAdapter, path: string, content: string | undefined): { frontmatter?: Frontmatter; issues: AgentEntryIssue[] } {
+  if (content === undefined) return { issues: [] }
+  try {
+    const frontmatter = parseFrontmatter(content)
+    const issues: AgentEntryIssue[] = []
+    const dirName = adapter.basename(path)
+    if (!frontmatter.name) issues.push(issue("invalid-skill-metadata", "error", "SKILL.md has no non-empty name."))
+    else if (frontmatter.name !== dirName) issues.push(issue("invalid-skill-metadata", "error", "Directory name does not exactly match SKILL.md name."))
+    return { frontmatter, issues }
+  } catch (error) { return { issues: [issue("invalid-skill-metadata", "error", `Cannot read Agent SKILL.md: ${error instanceof Error ? error.message : String(error)}`)] } }
+}
+function finishAgentScan(result: AgentScan): AgentScan {
+  const bySkill = new Map<string, AgentEntry[]>()
+  for (const entry of result.entries) if (entry.skillKey) bySkill.set(entry.skillKey, [...(bySkill.get(entry.skillKey) ?? []), entry])
+  for (const [skillKey, group] of bySkill) if (group.length > 1) { const duplicate = issue("duplicate-skill-entry", "warning", `Agent contains ${group.length} entries for Skill key \"${skillKey}\".`); result.issues.push(duplicate); for (const entry of group) entry.issues.push(duplicate) }
+  result.entries.sort((left, right) => compare(left.relativePath, right.relativePath))
+  result.summary = { total: result.entries.length, repoLinks: result.entries.filter((entry) => entry.kind === "repo-link").length, repoCopies: result.entries.filter((entry) => entry.kind === "repo-copy").length, localDirs: result.entries.filter((entry) => entry.kind === "local-dir").length, externalLinks: result.entries.filter((entry) => entry.kind === "external-link").length, brokenLinks: result.entries.filter((entry) => entry.kind === "broken-link").length, invalid: result.entries.filter((entry) => entry.kind === "invalid").length, issueCount: result.issues.length + result.entries.reduce((sum, entry) => sum + entry.issues.length, 0) }
+  return result
+}
+async function scanNativeWindowsAgent(config: AgentConfig, vault: VaultScan): Promise<AgentScan> {
+  const adapter = getHostPathAdapter("windows")
+  const root = adapter.normalize(config.path)
+  const result: AgentScan = { id: config.id, name: config.name, path: root, host: "windows", supported: true, rootExists: false, entries: [], issues: [], summary: { total: 0, repoLinks: 0, repoCopies: 0, localDirs: 0, externalLinks: 0, brokenLinks: 0, invalid: 0, issueCount: 0 } }
+  const native = await scanWindowsDirectory({ path: root, recursive: false, readChildFileNames: ["SKILL.md"] })
+  result.supported = native.supported
+  if (!native.supported) { result.issues.push(issue("agent-root-unreadable", "error", native.issues.join("；") || "Windows scanner is unavailable.")); return finishAgentScan(result) }
+  if (!native.rootExists) { result.issues.push(issue("agent-root-missing", "error", `Agent path does not exist: ${root}`)); return finishAgentScan(result) }
+  if (!native.rootIsDirectory) { result.issues.push(issue("agent-root-unreadable", "error", `Agent path is not a directory: ${root}`)); return finishAgentScan(result) }
+  result.rootExists = true
+  result.canonicalPath = native.canonicalPath ?? native.rootPath
+  for (const message of native.issues) result.issues.push(issue("agent-root-unreadable", "error", message))
+  for (const item of native.entries) {
+    const entry = baseEntry(adapter, root, item.name, item.path)
+    if (item.isReparsePoint) {
+      if (!item.targetPath) { result.entries.push({ ...entry, kind: "broken-link", issues: [issue("broken-link", "error", "Link target does not exist or cannot be resolved.")] }); continue }
+      if (inVault(vault, item.targetPath, adapter)) {
+        const targetSkill = findByCanonical(vault, item.targetPath, adapter)
+        result.entries.push(targetSkill ? { ...entry, kind: "repo-link", targetPath: item.targetPath, skillKey: targetSkill.relativePath, issues: [] } : { ...entry, kind: "repo-link", targetPath: item.targetPath, issues: [] })
+      } else result.entries.push({ ...entry, kind: "external-link", targetPath: item.targetPath, issues: [issue("external-link", "warning", "Link points outside the configured Vault.")] })
+      continue
+    }
+    if (item.isDirectory) {
+      const metadata = readDirectoryMetadataText(adapter, item.path, item.childFiles["SKILL.md"])
+      if (metadata.issues.length) { result.entries.push({ ...entry, kind: "invalid", frontmatter: metadata.frontmatter, issues: metadata.issues }); continue }
+      const targetSkill = metadata.frontmatter?.name ? findVaultSkillById(vault, metadata.frontmatter.name) : undefined
+      if (targetSkill) result.entries.push({ ...entry, kind: "repo-copy", skillKey: targetSkill.relativePath, frontmatter: metadata.frontmatter, issues: [issue("local-directory", "warning", "A real directory contains metadata for a Vault Skill but is not a link.")] })
+      else result.entries.push({ ...entry, kind: "local-dir", frontmatter: metadata.frontmatter, issues: [issue("local-directory", "warning", "A real local directory is not a Vault link.")] })
+      continue
+    }
+    result.entries.push({ ...entry, kind: "invalid", issues: [issue("invalid-entry", "error", "Agent entry is neither a directory nor a link.")] })
+  }
+  return finishAgentScan(result)
+}
 /** Scan one Agent's direct children, deliberately never following links as directories. */
 export async function scanAgent(config: AgentConfig, vault: VaultScan): Promise<AgentScan> {
+  if (config.host === "windows" && process.platform !== "win32") return scanNativeWindowsAgent(config, vault)
   const adapter = getHostPathAdapter(config.host); const root = adapter.normalize(config.path)
   const result: AgentScan = { id: config.id, name: config.name, path: root, host: config.host, supported: adapter.supportedRuntime, rootExists: false, entries: [], issues: [], summary: { total: 0, repoLinks: 0, repoCopies: 0, localDirs: 0, externalLinks: 0, brokenLinks: 0, invalid: 0, issueCount: 0 } }
   if (!adapter.supportedRuntime) { result.issues.push(issue("agent-root-unreadable", "error", `The ${config.host} adapter is unavailable on runtime ${process.platform}; scan not attempted.`)); result.summary.issueCount = 1; return result }

@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentScan, ComparisonResult, HostKind, LinkDeletePreflight, LinkExecutionResult, LinkPreflight, LinkRecord, LinkScan, LinkSpec, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
+import type { AgentConfig, AgentScan, BatchLinkExecution, BatchLinkPreflight, BatchLinkSpec, ComparisonResult, HostKind, LinkDeletePreflight, LinkExecutionResult, LinkPreflight, LinkRecord, LinkScan, LinkSpec, MirrorSyncExecution, MirrorSyncPlan, SkillManagerConfig, SyncPlan, VaultScan } from "../core/types.ts"
 
 const API_ROOT = "/api"
 
@@ -23,8 +23,13 @@ export interface SyncResponse {
   agent: AgentScan
   comparison: ComparisonResult
 }
+export interface MirrorSourceResponse { schemaVersion: 1; vault: VaultScan; execution: "read-only" }
+export interface MirrorPlanResponse { schemaVersion: 1; plan: MirrorSyncPlan; execution: "not-run" }
+export interface MirrorExecutionResponse extends MirrorSyncExecution { execution: "blocked" | "completed" | "failed" }
 export interface LinkPreflightResponse { schemaVersion: 1; preflight: LinkPreflight }
 export interface LinkCreateResponse { schemaVersion: 1; result: LinkExecutionResult; preflight: LinkPreflight }
+export interface BatchLinkPreflightResponse { schemaVersion: 1; preflight: BatchLinkPreflight }
+export interface BatchLinkCreateResponse { schemaVersion: 1; execution: BatchLinkExecution["execution"]; preflight: BatchLinkPreflight; results: BatchLinkExecution["results"] }
 export interface LinkDeleteResponse { schemaVersion: 1; preflight: LinkDeletePreflight; result?: LinkExecutionResult }
 export interface LinkScanResponse { schemaVersion: 1; scan: LinkScan }
 export interface AgentLinkResponse {
@@ -60,12 +65,21 @@ function linkPreflight(spec: LinkSpec): Promise<LinkPreflightResponse> {
 function createLink(spec: LinkSpec): Promise<LinkCreateResponse> {
   return request<LinkCreateResponse>("/links/create", { method: "POST", body: JSON.stringify(spec) })
 }
+function batchLinkPreflight(spec: BatchLinkSpec): Promise<BatchLinkPreflightResponse> {
+  return request<BatchLinkPreflightResponse>("/links/batch-preflight", { method: "POST", body: JSON.stringify(spec) })
+}
+function batchLinkCreate(spec: BatchLinkSpec): Promise<BatchLinkCreateResponse> {
+  return request<BatchLinkCreateResponse>("/links/batch-create", { method: "POST", body: JSON.stringify({ ...spec, confirm: true }) })
+}
 function deleteLink(host: HostKind, path: string): Promise<LinkDeleteResponse> {
   return request<LinkDeleteResponse>("/links/delete", { method: "POST", body: JSON.stringify({ host, path }) })
 }
 function scanLinks(host: HostKind, path: string, recursive: boolean): Promise<LinkScanResponse> {
   return request<LinkScanResponse>("/links/scan", { method: "POST", body: JSON.stringify({ host, path, recursive }) })
 }
+function mirrorSource(): Promise<MirrorSourceResponse> { return request<MirrorSourceResponse>("/mirror-sync/source") }
+function mirrorPlan(): Promise<MirrorPlanResponse> { return request<MirrorPlanResponse>("/mirror-sync/plan", { method: "POST", body: JSON.stringify({}) }) }
+function executeMirrorSync(): Promise<MirrorExecutionResponse> { return request<MirrorExecutionResponse>("/mirror-sync/execute", { method: "POST", body: JSON.stringify({ confirm: true }) }) }
 function convertAgentLink(agentId: string, name: string): Promise<AgentLinkResponse> {
   return request<AgentLinkResponse>("/agent-links/convert", { method: "POST", body: JSON.stringify({ agentId, name }) })
 }
@@ -73,4 +87,4 @@ function deleteAgentLink(agentId: string, skill: string): Promise<AgentLinkRespo
   return request<AgentLinkResponse>("/agent-links/delete", { method: "POST", body: JSON.stringify({ agentId, skill }) })
 }
 
-export const api = { init, vault, config, putConfig, agent, plan, executeSync, linkPreflight, createLink, deleteLink, scanLinks, convertAgentLink, deleteAgentLink }
+export const api = { init, vault, config, putConfig, agent, plan, executeSync, linkPreflight, createLink, batchLinkPreflight, batchLinkCreate, deleteLink, scanLinks, mirrorSource, mirrorPlan, executeMirrorSync, convertAgentLink, deleteAgentLink }

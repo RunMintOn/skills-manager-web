@@ -1,0 +1,25 @@
+.mirror-workbench { min-height:calc(100vh - 52px); padding:18px; display:grid; grid-template-columns:minmax(320px, .9fr) minmax(360px, 1.1fr); grid-template-rows:auto 1fr; gap:14px; background:var(--bg); }
+.mirror-settings { grid-row:span 2; }
+.mirror-form,.mirror-plan-body { padding:14px; display:flex; flex-direction:column; gap:12px; }
+.mirror-form label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:11px; font-weight:700; }
+.mirror-form input,.mirror-form textarea { width:100%; border:1px solid var(--line-strong); border-radius:4px; background:var(--field); color:var(--text); padding:8px; font:12px var(--mono); resize:vertical; }
+.mirror-scope { border:1px solid var(--line); border-radius:4px; padding:9px; display:flex; flex-direction:column; gap:8px; }
+.mirror-scope legend { padding:0 4px; color:var(--muted); font-size:10px; font-weight:750; }
+.mirror-scope label { flex-direction:row; align-items:center; color:var(--text); font-weight:500; }
+.mirror-actions { display:flex; justify-content:flex-end; gap:8px; }
+.mirror-selection,.mirror-preview { min-height:0; }
+.mirror-skill-list,.mirror-operation-list { overflow:auto; max-height:48vh; }
+.mirror-skill-row { display:flex; align-items:flex-start; gap:9px; padding:9px 12px; border-bottom:1px solid var(--line); cursor:pointer; }
+.mirror-skill-row:hover { background:var(--hover); }
+.mirror-skill-row span { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.mirror-skill-row small,.mirror-operation small { color:var(--muted); overflow-wrap:anywhere; }
+.mirror-empty { padding:18px; color:var(--muted); display:flex; flex-direction:column; align-items:flex-start; gap:10px; }
+.mirror-summary { display:flex; flex-wrap:wrap; gap:8px; }
+.mirror-summary span { background:var(--field); border:1px solid var(--line); border-radius:3px; padding:6px 8px; font-size:11px; color:var(--muted); }
+.mirror-summary b { color:var(--text); }
+.mirror-operation { display:grid; grid-template-columns:110px minmax(120px, 1fr); gap:4px 9px; padding:8px 12px; border-top:1px solid var(--line); font-size:11px; }
+.mirror-operation b { color:var(--accent); }
+.mirror-operation code { color:var(--text); overflow-wrap:anywhere; }
+.mirror-operation small { grid-column:2; }
+.mirror-operation.skipped b { color:var(--muted); }
+@media (max-width:900px) { .mirror-workbench { grid-template-columns:1fr; grid-template-rows:auto; } .mirror-settings { grid-row:auto; } .mirror-skill-list,.mirror-operation-list { max-height:38vh; } }

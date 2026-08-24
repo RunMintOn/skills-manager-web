@@ -2,7 +2,7 @@ import { constants } from "node:fs"
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
-import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, SkillManagerConfig } from "./types.ts"
+import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, MirrorSyncConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
 export const DEFAULT_CONFIG_PATH = nodePath.join(PROJECT_ROOT, "data", "config.json")
@@ -43,6 +43,32 @@ function validateAgent(value: unknown, index: number, ids: Set<string>): AgentCo
   if (ids.has(id)) throw new Error(`duplicate agent id: ${id}`)
   ids.add(id)
   return { id, name: agent.name.trim(), path: agent.path.trim(), host: agent.host }
+}
+
+function validateMirrorSync(value: unknown): MirrorSyncConfig {
+  if (!value || typeof value !== "object") throw new Error("mirrorSync must be an object")
+  const sync = value as Partial<MirrorSyncConfig>
+  if (!sync.source || typeof sync.source !== "object") throw new Error("mirrorSync.source is required")
+  if (!sync.mirror || typeof sync.mirror !== "object") throw new Error("mirrorSync.mirror is required")
+  nonEmpty(sync.source.path, "mirrorSync.source.path")
+  nonEmpty(sync.mirror.path, "mirrorSync.mirror.path")
+  host(sync.source.host, "mirrorSync.source.host")
+  host(sync.mirror.host, "mirrorSync.mirror.host")
+  if (sync.source.host !== "windows") throw new Error("mirrorSync.source.host must be windows")
+  if (sync.mirror.host !== "wsl") throw new Error("mirrorSync.mirror.host must be wsl")
+  if (sync.scope !== "full" && sync.scope !== "selected") throw new Error("mirrorSync.scope must be full or selected")
+  if (sync.selectedPaths !== undefined && !Array.isArray(sync.selectedPaths)) throw new Error("mirrorSync.selectedPaths must be an array")
+  const selectedPaths = (sync.selectedPaths ?? []).map(function (item, index): string {
+    nonEmpty(item, `mirrorSync.selectedPaths[${index}]`)
+    return item.trim()
+  })
+  if (new Set(selectedPaths).size !== selectedPaths.length) throw new Error("mirrorSync.selectedPaths contains duplicates")
+  if (sync.exclude !== undefined && !Array.isArray(sync.exclude)) throw new Error("mirrorSync.exclude must be an array")
+  const exclude = (sync.exclude ?? []).map(function (item, index): string {
+    nonEmpty(item, `mirrorSync.exclude[${index}]`)
+    return item.trim()
+  })
+  return { source: { path: sync.source.path.trim(), host: "windows" }, mirror: { path: sync.mirror.path.trim(), host: "wsl" }, scope: sync.scope, ...(selectedPaths.length ? { selectedPaths } : {}), ...(exclude.length ? { exclude } : {}) }
 }
 
 function validateCommonPath(value: unknown, index: number, ids: Set<string>): CommonPath {
@@ -87,6 +113,8 @@ export function validateConfig(input: unknown): SkillManagerConfig {
       })
     : []
 
+  const mirrorSync = value.mirrorSync === undefined ? undefined : validateMirrorSync(value.mirrorSync)
+
   let lastScanPath: string | undefined
   if (value.lastScanPath !== undefined) {
     if (typeof value.lastScanPath !== "string") throw new Error("lastScanPath must be a string")
@@ -105,6 +133,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
     agents,
     commonPaths,
     links,
+    ...(mirrorSync ? { mirrorSync } : {}),
     ...(lastScanPath ? { lastScanPath } : {}),
     ...(selectedAgentId ? { selectedAgentId } : {}),
   }
@@ -129,6 +158,13 @@ export function resolveConfig(input: SkillManagerConfig, configPath: string, exi
     agents: validated.agents.map(function (agent): AgentConfig {
       return { ...agent, path: resolvePath(agent.path, agent.host, directory) }
     }),
+    ...(validated.mirrorSync ? {
+      mirrorSync: {
+        ...validated.mirrorSync,
+        source: { ...validated.mirrorSync.source, path: resolvePath(validated.mirrorSync.source.path, validated.mirrorSync.source.host, directory) },
+        mirror: { ...validated.mirrorSync.mirror, path: resolvePath(validated.mirrorSync.mirror.path, validated.mirrorSync.mirror.host, directory) },
+      },
+    } : {}),
   }
 }
 
@@ -175,6 +211,7 @@ export function configForWrite(config: LoadedConfig): SkillManagerConfig {
     agents: config.agents.map(function (agent): AgentConfig { return { ...agent } }),
     commonPaths: (config.commonPaths ?? []).map(function (item): CommonPath { return { ...item } }),
     links: (config.links ?? []).map(function (item): LinkRecord { return { ...item } }),
+    ...(config.mirrorSync ? { mirrorSync: { ...config.mirrorSync, source: { ...config.mirrorSync.source }, mirror: { ...config.mirrorSync.mirror }, ...(config.mirrorSync.selectedPaths ? { selectedPaths: [...config.mirrorSync.selectedPaths] } : {}), ...(config.mirrorSync.exclude ? { exclude: [...config.mirrorSync.exclude] } : {}) } } : {}),
     ...(config.lastScanPath ? { lastScanPath: config.lastScanPath } : {}),
     ...(config.selectedAgentId ? { selectedAgentId: config.selectedAgentId } : {}),
   }

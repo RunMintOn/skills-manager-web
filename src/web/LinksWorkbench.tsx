@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react"
-import type { CommonPath, HostKind, LinkEntry, LinkPreflight, LinkScan, LinkSpec, SkillManagerConfig } from "../core/types.ts"
+import type { BatchLinkPreflight, CommonPath, HostKind, LinkEntry, LinkPreflight, LinkScan, LinkSpec, SkillManagerConfig } from "../core/types.ts"
 import { api } from "./api"
 
 type Props = {
@@ -34,6 +34,7 @@ type ScanPanelProps = {
   onScan: () => void
   onSelectEntry: (entry: LinkEntry) => void
   onDelete: () => void
+  onDeleteBroken: () => void
 }
 type CommonPathsPanelProps = {
   paths: CommonPath[]
@@ -46,6 +47,7 @@ type CommonPathsPanelProps = {
   onDelete: (item: CommonPath) => void
 }
 type PreflightPanelProps = { preflight: LinkPreflight; busy: boolean; onClose: () => void; onCreate: () => void }
+type BatchPreflightPanelProps = { preflight: BatchLinkPreflight; busy: boolean; onClose: () => void; onCreate: () => void }
 type CommonPathModalProps = {
   draft: CommonPath
   editing: boolean
@@ -89,6 +91,10 @@ function statusLabel(entry: LinkEntry): string {
   }
 }
 
+function isBrokenLink(entry: LinkEntry): boolean {
+  return entry.canDelete && entry.targetStatus === "broken"
+}
+
 function upsertCommonPath(paths: CommonPath[], value: CommonPath): CommonPath[] {
   const index = paths.findIndex(function (item): boolean { return item.id === value.id })
   if (index < 0) return [...paths, value]
@@ -108,7 +114,8 @@ function PathCard({ title, description, host, path, placeholder, commonPaths, on
   </div>
 }
 
-function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, onHostChange, onPathChange, onRecursiveChange, onScan, onSelectEntry, onDelete }: ScanPanelProps): ReactElement {
+function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, onHostChange, onPathChange, onRecursiveChange, onScan, onSelectEntry, onDelete, onDeleteBroken }: ScanPanelProps): ReactElement {
+  const brokenEntries = entries.filter(isBrokenLink)
   let summary = ""
   if (scan) {
     if (!scan.rootExists) summary = "路径不存在"
@@ -124,6 +131,7 @@ function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, 
       <button className="secondary-button" disabled={busy || !path.trim()} onClick={onScan}>扫描</button>
     </div>
     {scan && <div className="scan-summary"><span>{summary}</span><span>{scan.supported ? "适配器可用" : "适配器不可用"}</span></div>}
+    {scan && <button className="danger-button" disabled={busy || !brokenEntries.length} onClick={onDeleteBroken}>批量删除断链（{brokenEntries.length}）</button>}
     <div className="link-entry-list">
       {!scan && <div className="list-empty">输入目录后扫描</div>}
       {scan && !entries.length && !scan.issues.length && <div className="list-empty">目录为空</div>}
@@ -176,6 +184,32 @@ function PreflightPanel({ preflight, busy, onClose, onCreate }: PreflightPanelPr
   </section>
 }
 
+function BatchPreflightPanel({ preflight, busy, onClose, onCreate }: BatchPreflightPanelProps): ReactElement {
+  const readyCount = preflight.items.filter((item) => item.preflight.ready).length
+  const blockedCount = preflight.items.length - readyCount
+  return <section className={preflight.ready ? "panel preflight-panel batch-preflight-panel ready" : "panel preflight-panel batch-preflight-panel blocked"}>
+    <div className="panel-heading"><span>批量预检结果</span><span className={preflight.ready ? "preflight-status ready" : "preflight-status blocked"}>{readyCount} 项可创建 · {blockedCount} 项阻止</span></div>
+    <div className="batch-preflight-body">
+      <div className="batch-preflight-roots">
+        <div><label>源文件夹</label><code>{preflight.spec.targetPath}</code></div>
+        <div><label>目标文件夹</label><code>{preflight.spec.linkPath}</code></div>
+      </div>
+      {preflight.risks.length > 0 && <ul className="preflight-risks">{preflight.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul>}
+      <div className="batch-link-items">
+        {preflight.items.map((item) => {
+          const itemPreflight = item.preflight
+          return <article className={itemPreflight.ready ? "batch-link-item" : "batch-link-item blocked"} key={item.name}>
+            <div className="batch-link-item-head"><strong>{item.name}</strong><span className={itemPreflight.ready ? "batch-link-status ready" : "batch-link-status blocked"}>{itemPreflight.ready ? "可以创建" : "已阻止"}</span></div>
+            <div className="batch-link-item-paths"><code>{itemPreflight.spec.targetPath}</code><span>→</span><code>{itemPreflight.spec.linkPath}</code></div>
+            <div className="batch-link-item-meta">{itemPreflight.strategy ? strategyLabel(itemPreflight.strategy) : "未确定策略"}{itemPreflight.risks.length ? ` · ${itemPreflight.risks.join("；")}` : ""}</div>
+          </article>
+        })}
+      </div>
+      <div className="preflight-actions"><button className="secondary-button" onClick={onClose}>关闭</button><button className="primary-button" disabled={!preflight.ready || busy} onClick={onCreate}>{busy ? "创建中…" : `确认创建 ${readyCount} 个链接`}</button></div>
+    </div>
+  </section>
+}
+
 function CommonPathModal({ draft, editing, onChange, onClose, onSave }: CommonPathModalProps): ReactElement {
   return <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className="modal">
@@ -191,7 +225,9 @@ function CommonPathModal({ draft, editing, onChange, onClose, onSave }: CommonPa
 
 export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Props): ReactElement {
   const [spec, setSpec] = useState<LinkSpec>(emptySpec)
+  const [batchMode, setBatchMode] = useState(false)
   const [preflight, setPreflight] = useState<LinkPreflight | null>(null)
+  const [batchPreflight, setBatchPreflight] = useState<BatchLinkPreflight | null>(null)
   const [busy, setBusy] = useState(false)
   const [scanHost, setScanHost] = useState<HostKind>("wsl")
   const [scanPath, setScanPath] = useState("")
@@ -217,14 +253,22 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
   function updateSpec(patch: Partial<LinkSpec>): void {
     setSpec(function mergeSpec(current): LinkSpec { return { ...current, ...patch } })
     setPreflight(null)
+    setBatchPreflight(null)
   }
 
   async function runPreflight(): Promise<void> {
     setBusy(true)
     onError("")
     try {
-      const response = await api.linkPreflight(spec)
-      setPreflight(response.preflight)
+      if (batchMode) {
+        const response = await api.batchLinkPreflight(spec)
+        setBatchPreflight(response.preflight)
+        setPreflight(null)
+      } else {
+        const response = await api.linkPreflight(spec)
+        setPreflight(response.preflight)
+        setBatchPreflight(null)
+      }
     } catch (error) {
       onError(displayError(error))
     } finally {
@@ -246,6 +290,29 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
         await api.putConfig({ ...config, lastScanPath: path })
         onConfigChange({ ...config, lastScanPath: path })
       }
+    } catch (error) {
+      onError(displayError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createBatch(): Promise<void> {
+    if (!batchPreflight?.ready) return
+    const batchSpec = batchPreflight.spec
+    const readyCount = batchPreflight.items.filter((item) => item.preflight.ready).length
+    if (!window.confirm(`确认批量创建 ${readyCount} 个链接？\n\n源文件夹：${batchSpec.targetPath}\n目标文件夹：${batchSpec.linkPath}\n\n已存在的目标不会被覆盖。`)) return
+    setBusy(true)
+    onError("")
+    try {
+      const response = await api.batchLinkCreate(batchSpec)
+      const created = response.results.filter((item) => item.action === "created" && item.success).length
+      const blocked = response.results.filter((item) => item.action === "blocked").length
+      const failures = response.results.filter((item) => item.action === "failed" || !item.success && item.attempted)
+      if (created || blocked) onNotice(`批量链接完成：创建 ${created} 个，阻止 ${blocked} 个`)
+      if (failures.length) onError(`部分链接创建失败：${failures.map((item) => `${item.name}: ${item.error ?? item.message}`).join("；")}`)
+      setBatchPreflight(null)
+      if (scan && scan.host === batchSpec.linkHost) await runScan(scan.host, scan.path, scan.recursive)
     } catch (error) {
       onError(displayError(error))
     } finally {
@@ -277,8 +344,10 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
 
   async function deleteEntry(): Promise<void> {
     if (!selectedEntry?.canDelete || !scan) return
-    const confirmation = `确认只删除这个链接条目？\n\n链接：${selectedEntry.absolutePath}\n目标：${selectedEntry.targetPath ?? "断链"}\n\n不会删除目标内容。`
-    if (!window.confirm(confirmation)) return
+    if (selectedEntry.targetStatus !== "broken") {
+      const confirmation = `确认只删除这个链接条目？\n\n链接：${selectedEntry.absolutePath}\n目标：${selectedEntry.targetPath ?? "断链"}\n\n不会删除目标内容。`
+      if (!window.confirm(confirmation)) return
+    }
     setBusy(true)
     onError("")
     try {
@@ -292,6 +361,32 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
       await runScan()
     } catch (error) {
       onError(displayError(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteBrokenEntries(): Promise<void> {
+    if (!scan) return
+    const brokenEntries = scan.entries.filter(isBrokenLink)
+    if (!brokenEntries.length) return
+    setBusy(true)
+    onError("")
+    const failures: string[] = []
+    let deleted = 0
+    try {
+      for (const entry of brokenEntries) {
+        try {
+          const response = await api.deleteLink(scan.host, entry.absolutePath)
+          if (response.result?.success) deleted += 1
+          else failures.push(`${entry.name}: ${response.result?.error ?? response.preflight.risks.join("；")}`)
+        } catch (error) {
+          failures.push(`${entry.name}: ${displayError(error)}`)
+        }
+      }
+      await runScan(scan.host, scan.path, scan.recursive)
+      if (deleted) onNotice(`已删除 ${deleted} 条断链`)
+      if (failures.length) onError(`部分断链删除失败：${failures.join("；")}`)
     } finally {
       setBusy(false)
     }
@@ -365,16 +460,18 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
       <section className="panel link-create-panel">
         <div className="panel-heading"><span>创建链接</span><span className="result-count">目标与链接路径必须明确</span></div>
         <div className="link-form-content">
-          <PathCard title="Link Target · 目标" description="已有文件或目录" host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={(targetPath) => updateSpec({ targetPath })} onFill={fillTarget} />
-          <PathCard title="Link Path · 链接" description="新链接条目" host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={(linkPath) => updateSpec({ linkPath })} onFill={fillLink} />
-          <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpec); setPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : "预检链接"}</button></div>
-          <p className="safety-note">预检会确认目标存在、链接路径不存在、父目录可用，并阻止覆盖普通文件或目录。</p>
+          <label className="batch-mode-toggle"><input type="checkbox" checked={batchMode} onChange={(event) => { setBatchMode(event.target.checked); setPreflight(null); setBatchPreflight(null) }} />批量链接源文件夹中的 Skill 子目录</label>
+          <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={(targetPath) => updateSpec({ targetPath })} onFill={fillTarget} />
+          <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={(linkPath) => updateSpec({ linkPath })} onFill={fillLink} />
+          <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpec); setPreflight(null); setBatchPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : batchMode ? "预检批量链接" : "预检链接"}</button></div>
+          <p className="safety-note">{batchMode ? "只读取源文件夹直接子目录中包含 SKILL.md 的目录，并将它们平铺链接到目标文件夹。" : "预检会确认目标存在、链接路径不存在、父目录可用，并阻止覆盖普通文件或目录。"}</p>
         </div>
       </section>
-      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={setScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} />
+      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={setScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} onDeleteBroken={() => void deleteBrokenEntries()} />
       <CommonPathsPanel paths={commonPaths} onAdd={() => setCommonEditor({ id: `path-${Date.now()}`, name: "", host: "wsl", path: "" })} onFillTarget={fillTarget} onFillLink={fillLink} onScan={prepareScan} onCopy={(item) => void copyPath(item)} onEdit={setCommonEditor} onDelete={(item) => void removeCommonPath(item)} />
     </section>
     {preflight && <PreflightPanel preflight={preflight} busy={busy} onClose={() => setPreflight(null)} onCreate={() => void create()} />}
+    {batchPreflight && <BatchPreflightPanel preflight={batchPreflight} busy={busy} onClose={() => setBatchPreflight(null)} onCreate={() => void createBatch()} />}
     {commonEditor && <CommonPathModal draft={commonEditor} editing={commonPaths.some((item) => item.id === commonEditor.id)} onChange={setCommonEditor} onClose={() => setCommonEditor(null)} onSave={() => void saveCommonPath()} />}
   </main>
 }

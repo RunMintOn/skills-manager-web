@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process"
 import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
+import { promisify } from "node:util"
 import nodePath from "node:path"
 import {
   appendSafeChild,
@@ -11,16 +13,32 @@ import {
   executeDeleteLink,
   executeLink,
   getHostPathAdapter,
+  preflightBatchLinks,
   preflightLink,
   scanLinkDirectory,
+  executeMirrorSync,
   isSafeWslPath,
+  planMirrorSync,
+  windowsPathToWsl,
   parseFrontmatter,
   scanAgent,
   scanVault,
   toggleSelection,
+  vaultConfigForHost,
   validateConfig,
 } from "./index.ts"
-import { fixturePath } from "./config.ts"
+import { fixturePath, resolveConfig } from "./config.ts"
+
+const execFileAsync = promisify(execFile)
+
+async function createWindowsTempDirectory(): Promise<{ windows: string; wsl: string }> {
+  const name = `skills-manager-mirror-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const response = await execFileAsync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `$path = Join-Path $env:TEMP '${name}'; [System.IO.Directory]::CreateDirectory($path).FullName`])
+  const windows = response.stdout.trim()
+  const wsl = windowsPathToWsl(windows)
+  if (!wsl) throw new Error("Windows temporary directory is not mounted in WSL")
+  return { windows, wsl }
+}
 
 describe("frontmatter and safe path boundaries", () => {
   it("parses scalar fields without evaluating YAML", () => {
@@ -150,6 +168,31 @@ describe("real generic link service", () => {
     } finally { await rm(root, { recursive: true, force: true }) }
   })
 
+  it("preflights direct Skill children as flat same-host links", async () => {
+    const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-batch-link-test-"))
+    try {
+      const source = nodePath.join(root, "source")
+      const destination = nodePath.join(root, "destination")
+      await mkdir(nodePath.join(source, "one"), { recursive: true })
+      await writeFile(nodePath.join(source, "one", "SKILL.md"), "---\nname: one\n---\n")
+      await mkdir(nodePath.join(source, "occupied"), { recursive: true })
+      await writeFile(nodePath.join(source, "occupied", "SKILL.md"), "---\nname: occupied\n---\n")
+      await mkdir(nodePath.join(source, "no-skill"), { recursive: true })
+      await writeFile(nodePath.join(source, "no-skill", "README.md"), "ignore")
+      await mkdir(nodePath.join(source, "nested", "two"), { recursive: true })
+      await writeFile(nodePath.join(source, "nested", "two", "SKILL.md"), "---\nname: two\n---\n")
+      await mkdir(nodePath.join(destination, "occupied"), { recursive: true })
+      await writeFile(nodePath.join(destination, "occupied", "keep.txt"), "keep")
+      const preflight = await preflightBatchLinks({ targetHost: "wsl", targetPath: source, linkHost: "wsl", linkPath: destination })
+      expect(preflight.ready).toBe(true)
+      expect(preflight.items.map((item) => item.name)).toEqual(["occupied", "one"])
+      expect(preflight.items.find((item) => item.name === "occupied")?.preflight.ready).toBe(false)
+      expect(preflight.items.find((item) => item.name === "one")?.preflight.strategy).toBe("wsl-symlink")
+      expect(preflight.items.find((item) => item.name === "one")?.preflight.spec.linkPath).toBe(nodePath.join(destination, "one"))
+      await expect(lstat(nodePath.join(destination, "one"))).rejects.toThrow()
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it("blocks an existing destination and ordinary directory deletion", async () => {
     const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-link-test-"))
     try {
@@ -167,6 +210,17 @@ describe("config validation", () => {
     expect(validateConfig({ schemaVersion: 1, vault: { path: "/tmp/vault", host: "wsl" }, agents: [] })).toMatchObject({ schemaVersion: 1 })
   })
 
+  it("keeps a Windows source and WSL mirror as host-local Vaults", () => {
+    const loaded = resolveConfig(validateConfig({
+      schemaVersion: 1,
+      vault: { path: "/tmp/wsl-vault", host: "wsl" },
+      agents: [],
+      mirrorSync: { source: { path: "C:\\Vault", host: "windows" }, mirror: { path: "/tmp/wsl-vault", host: "wsl" }, scope: "full" },
+    }), "/tmp/config.json")
+    expect(vaultConfigForHost(loaded, "windows")).toEqual({ path: "C:\\Vault", host: "windows" })
+    expect(vaultConfigForHost(loaded, "wsl")).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
+  })
+
   it("accepts link records and last scan path", () => {
     const config = validateConfig({
       schemaVersion: 1,
@@ -177,6 +231,52 @@ describe("config validation", () => {
     })
     expect(config.links).toEqual([{ skill: "ask-matt", collection: "01_matt-skills", agentId: "a" }])
     expect(config.lastScanPath).toBe("/home/lee/links")
+  })
+})
+
+describe("Windows-to-WSL mirror sync", () => {
+  it("preserves selected source paths, excludes dependencies, and propagates source deletion", async () => {
+    const source = await createWindowsTempDirectory()
+    const mirror = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-mirror-test-"))
+    try {
+      await mkdir(nodePath.join(source.wsl, "collection", "skill", "docs"), { recursive: true })
+      await writeFile(nodePath.join(source.wsl, "collection", "skill", "SKILL.md"), "source skill")
+      await writeFile(nodePath.join(source.wsl, "collection", "skill", "docs", "guide.md"), "source guide")
+      await mkdir(nodePath.join(source.wsl, "collection", "skill", "node_modules", "dependency"), { recursive: true })
+      await writeFile(nodePath.join(source.wsl, "collection", "skill", "node_modules", "dependency", "index.js"), "source dependency")
+      await mkdir(nodePath.join(mirror, "collection", "skill", "node_modules", "dependency"), { recursive: true })
+      await writeFile(nodePath.join(mirror, "collection", "skill", "SKILL.md"), "old")
+      await writeFile(nodePath.join(mirror, "collection", "skill", "stale.md"), "delete")
+      await writeFile(nodePath.join(mirror, "collection", "skill", "node_modules", "dependency", "index.js"), "keep")
+      await mkdir(nodePath.join(mirror, "unmanaged"), { recursive: true })
+      await writeFile(nodePath.join(mirror, "unmanaged", "keep.md"), "keep")
+
+      const sync = { source: { host: "windows" as const, path: source.windows }, mirror: { host: "wsl" as const, path: mirror }, scope: "selected" as const, selectedPaths: ["collection/skill"] }
+      const firstPlan = await planMirrorSync(sync)
+      expect(firstPlan.ready).toBe(true)
+      expect(firstPlan.operations.map((item) => item.action)).toContain("copy-file")
+      expect(firstPlan.operations.some((item) => item.relativePath === "collection/skill/stale.md" && item.action === "delete-file")).toBe(true)
+      expect(firstPlan.operations.some((item) => item.relativePath.includes("node_modules"))).toBe(false)
+      const firstExecution = await executeMirrorSync(firstPlan)
+      expect(firstExecution.results.every((item) => item.success)).toBe(true)
+      expect(await readFile(nodePath.join(mirror, "collection", "skill", "SKILL.md"), "utf8")).toBe("source skill")
+      expect(await readFile(nodePath.join(mirror, "collection", "skill", "docs", "guide.md"), "utf8")).toBe("source guide")
+      await expect(lstat(nodePath.join(mirror, "collection", "skill", "stale.md"))).rejects.toThrow()
+      expect(await readFile(nodePath.join(mirror, "collection", "skill", "node_modules", "dependency", "index.js"), "utf8")).toBe("keep")
+      expect(await readFile(nodePath.join(mirror, "unmanaged", "keep.md"), "utf8")).toBe("keep")
+
+      await rm(nodePath.join(source.wsl, "collection", "skill", "docs", "guide.md"))
+      const deletionPlan = await planMirrorSync(sync)
+      expect(deletionPlan.operations.some((item) => item.relativePath === "collection/skill/docs/guide.md" && item.action === "delete-file")).toBe(true)
+      await executeMirrorSync(deletionPlan)
+      await expect(lstat(nodePath.join(mirror, "collection", "skill", "docs", "guide.md"))).rejects.toThrow()
+
+      const fullPlan = await planMirrorSync({ ...sync, scope: "full", selectedPaths: [] })
+      expect(fullPlan.operations.some((item) => item.relativePath === "unmanaged/keep.md" && item.action === "delete-file")).toBe(true)
+    } finally {
+      await rm(source.wsl, { recursive: true, force: true })
+      await rm(mirror, { recursive: true, force: true })
+    }
   })
 })
 

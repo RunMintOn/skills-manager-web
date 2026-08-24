@@ -23,12 +23,23 @@ export interface AgentConfig { id: string; name: string; host: HostKind; path: s
 export interface CommonPath { id: string; name: string; host: HostKind; path: string }
 /** 链接记录：skill -> agent（按 agentId 关联）。来源集合只存在应用配置里，文件系统上不可见（真相语义）。 */
 export interface LinkRecord { skill: string; collection: string; agentId: string }
+
+/** Windows 真相源到 WSL 镜像的单向同步配置。选择路径始终相对于 source 根目录。 */
+export type MirrorSyncScope = "full" | "selected"
+export interface MirrorSyncConfig {
+  source: VaultConfig
+  mirror: VaultConfig
+  scope: MirrorSyncScope
+  selectedPaths?: string[]
+  exclude?: string[]
+}
 export interface SkillManagerConfig {
   schemaVersion: 1
   vault: VaultConfig
   agents: AgentConfig[]
   commonPaths?: CommonPath[]
   links?: LinkRecord[]
+  mirrorSync?: MirrorSyncConfig
   lastScanPath?: string
   selectedAgentId?: string
 }
@@ -208,6 +219,13 @@ export interface LinkSpec {
   linkPath: string
 }
 
+export interface BatchLinkSpec {
+  targetHost: HostKind
+  targetPath: string
+  linkHost: HostKind
+  linkPath: string
+}
+
 export interface LinkPreflight {
   schemaVersion: 1
   spec: LinkSpec
@@ -230,6 +248,37 @@ export interface LinkExecutionResult {
   error?: string
 }
 
+export interface BatchLinkItem {
+  name: string
+  preflight: LinkPreflight
+}
+
+export interface BatchLinkPreflight {
+  schemaVersion: 1
+  spec: BatchLinkSpec
+  ready: boolean
+  items: BatchLinkItem[]
+  risks: string[]
+}
+
+export interface BatchLinkExecutionItem {
+  name: string
+  targetPath: string
+  linkPath: string
+  action: "created" | "blocked" | "failed"
+  success: boolean
+  attempted: boolean
+  message: string
+  error?: string
+}
+
+export interface BatchLinkExecution {
+  schemaVersion: 1
+  execution: "completed" | "failed"
+  preflight: BatchLinkPreflight
+  results: BatchLinkExecutionItem[]
+}
+
 export interface LinkDeletePreflight {
   schemaVersion: 1
   host: HostKind
@@ -250,6 +299,32 @@ export interface LinkEntry {
   rawTarget?: string
   targetStatus: LinkTargetStatus
   canDelete: boolean
+}
+
+export type MirrorSyncAction = "create-directory" | "copy-file" | "delete-file" | "delete-directory" | "skip"
+export interface MirrorSyncOperation {
+  id: string
+  relativePath: string
+  action: MirrorSyncAction
+  sourcePath?: string
+  mirrorPath: string
+  reason: string
+  execution: "not-run" | "completed" | "failed" | "skipped"
+}
+export interface MirrorSyncPlan {
+  schemaVersion: 1
+  mode: "preview-only" | "execution"
+  sync: MirrorSyncConfig
+  ready: boolean
+  operations: MirrorSyncOperation[]
+  issues: string[]
+  summary: Record<MirrorSyncAction, number>
+  safety: { filesystemWrites: "disabled" | "enabled"; source: "read-only"; note: string }
+}
+export interface MirrorSyncExecution {
+  schemaVersion: 1
+  plan: MirrorSyncPlan
+  results: Array<{ id: string; success: boolean; attempted: boolean; message: string; error?: string }>
 }
 
 export interface LinkScan {
