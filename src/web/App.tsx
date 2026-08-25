@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react"
 import type { AgentConfig, AgentEntry, AgentScan, ComparisonResult, ComparisonRow, HostKind, SkillManagerConfig, SyncPlan, VaultScan, VaultSkill } from "../core/types.ts"
+import { mirrorVaultForHost, synchronizeBaselineWithMirror } from "../core/baseline.ts"
 import { api, type InitResponse } from "./api"
 import { detectPathHost, isAbsolutePathForHost } from "../core/path-host.ts"
 import { LinksWorkbench } from "./LinksWorkbench"
@@ -65,6 +66,7 @@ export function App(): ReactElement {
   const [query, setQuery] = useState("")
   const [diffOnly, setDiffOnly] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [scanStale, setScanStale] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [agentModal, setAgentModal] = useState<AgentDraft | null>(null)
   const [vaultPathDraft, setVaultPathDraft] = useState("")
@@ -74,6 +76,7 @@ export function App(): ReactElement {
   const [notice, setNotice] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set())
   const collapsedGroupsInitialized = useRef(false)
+  const previousTopTab = useRef<TopTab>("skills")
   const searchRef = useRef<HTMLInputElement>(null)
   const previewCloseRef = useRef<HTMLButtonElement>(null)
 
@@ -86,12 +89,17 @@ export function App(): ReactElement {
     setLoading(true); setError(null)
     try {
       const initValue = await api.init(); const configValue = initValue.config.config; const vaultValue = (await api.vault()).vault
-      setInit(initValue); setConfig(configValue); setVault(vaultValue)
+      setInit(initValue); setConfig(configValue); setVault(vaultValue); setScanStale(false)
       const id = initValue.selectedAgentId ?? configValue.selectedAgentId ?? configValue.agents[0]?.id ?? ""; setSelectedAgentId(id)
       if (id) await loadAgent(id, vaultValue); else { setAgent(null); setComparison(null); setSelectedSkillKey(vaultValue.skills[0]?.relativePath ?? null) }
     } catch (loadError) { setError(displayError(loadError)); setInit(null); setVault(null); setAgent(null); setComparison(null) } finally { setLoading(false) }
   }, [loadAgent])
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const enteredSkills = previousTopTab.current !== "skills" && topTab === "skills"
+    previousTopTab.current = topTab
+    if (enteredSkills && scanStale) void load()
+  }, [topTab, scanStale, load])
   useEffect(() => { setVaultPathDraft(config.vault.path) }, [config.vault.path])
   useEffect(() => {
     try { window.localStorage.setItem("skills-manager-theme", dark ? "dark" : "light") } catch { /* storage can be unavailable */ }
@@ -107,7 +115,7 @@ export function App(): ReactElement {
   }, [preview, agentModal])
   useEffect(() => { if (preview) setTimeout(() => previewCloseRef.current?.focus(), 0) }, [preview])
 
-  const selectAgent = async (id: string) => { if (!vault) return; setSelectedAgentId(id); setError(null); try { await loadAgent(id, vault) } catch (loadError) { setError(displayError(loadError)) } }
+  const selectAgent = async (id: string) => { if (!vault) return; if (scanStale) { setNotice("当前 Host 的扫描结果待刷新，请先点击右上角刷新"); return } setSelectedAgentId(id); setError(null); try { await loadAgent(id, vault) } catch (loadError) { setError(displayError(loadError)) } }
   const filteredSkills = useMemo(() => {
     if (!vault) return []
     const needle = query.normalize("NFKC").toLocaleLowerCase("en-US").trim()
@@ -145,11 +153,25 @@ export function App(): ReactElement {
       return [...new Set([...current, ...validIds])]
     })
   }
-  async function saveConfig(next: SkillManagerConfig): Promise<void> {
+  function applyMirrorConfig(next: SkillManagerConfig): void {
+    const baselineChanged = next.vault.host !== config.vault.host || next.vault.path !== config.vault.path
+    setConfig(next)
+    if (baselineChanged) {
+      setScanStale(true)
+      setPreview(null)
+    }
+  }
+  async function saveConfig(next: SkillManagerConfig, options: { reload?: boolean; notice?: string } = {}): Promise<void> {
     try {
       const result = await api.putConfig(next)
       setConfig(result.config)
-      setNotice("配置已保存；未触碰任何真实目录")
+      if (options.reload === false) {
+        setScanStale(true)
+        setPreview(null)
+        setNotice(options.notice ?? "配置已保存；扫描结果待刷新")
+        return
+      }
+      setNotice(options.notice ?? "配置已保存；未触碰任何真实目录")
       await load()
     } catch (saveError) {
       setError(displayError(saveError))
@@ -168,11 +190,16 @@ export function App(): ReactElement {
     if (!path) { setError("Vault 路径不能为空"); return }
     if (path === config.vault.path && host === config.vault.host) return
     if (!isAbsolutePathForHost(host, path)) { setError(`路径风格与主机不匹配：${pathStyleHint(host)}`); return }
-    void saveConfig({ ...config, vault: { path, host } })
+    void saveConfig(synchronizeBaselineWithMirror(config, { path, host }), { reload: false, notice: "Baseline 已更新；扫描结果待刷新" })
   }
   function commitVaultHost(nextHost: HostKind): void {
     if (nextHost === config.vault.host) return
-    void saveConfig({ ...config, vault: { ...config.vault, host: nextHost } })
+    const pairedVault = mirrorVaultForHost(config, nextHost)
+    if (!pairedVault) {
+      setError("切换 Host 前，请先在 Vault 镜像界面配置对应环境的路径")
+      return
+    }
+    void saveConfig(synchronizeBaselineWithMirror(config, pairedVault), { reload: false, notice: "Host 已切换；扫描结果待刷新" })
   }
   async function saveAgent(): Promise<void> {
     if (!agentModal?.name.trim() || !agentModal.path.trim() || !agentModal.id.trim()) {
@@ -236,6 +263,7 @@ export function App(): ReactElement {
   }
 
   async function openPreview(): Promise<void> {
+    if (scanStale) { setNotice("正在刷新当前 Host 的扫描结果…"); await load(); return }
     if (!selectedAgentId || !validSelected.length) return
     setPreviewLoading(true)
     setError(null)
@@ -249,6 +277,7 @@ export function App(): ReactElement {
     }
   }
   async function executeSync(): Promise<void> {
+    if (scanStale) { setNotice("正在刷新当前 Host 的扫描结果…"); await load(); return }
     if (!preview || !selectedAgentId) return
     const createCount = preview.operations.filter(function (operation): boolean { return operation.action === "create-link" }).length
     if (!window.confirm(`确认真实创建 ${createCount} 个 Skill 链接？\n\n不会修改 Vault。冲突条目会保持阻止。`)) return
@@ -331,7 +360,7 @@ export function App(): ReactElement {
       <button className="icon-button toggle-theme" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button>
     </header>
 
-    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : topTab === "mirror" ? <MirrorSyncWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
+    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : topTab === "mirror" ? <MirrorSyncWorkbench config={config} onConfigChange={applyMirrorConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
       <main className="workspace">
         <aside className="left">
           <div className="pane-head"><span>Agent 目标</span><div className="head-actions"><button className="head-btn" title="添加 Agent" aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg></button></div></div>
@@ -390,6 +419,7 @@ export function App(): ReactElement {
             </div>
           </div>
           {error && <div className="banner banner-error" role="alert">⚠ {error} <button onClick={() => void load()}>重试</button><button onClick={() => setError(null)}>×</button></div>}
+          {scanStale && <div className="banner banner-notice" role="status">当前 Host 的扫描结果待刷新。点击右上角刷新。<button onClick={() => void load()}>立即刷新</button></div>}
           {notice && <div className="banner banner-notice" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
           <SkillMatrix view={view} actualMode={actualMode} showPaths={showPaths} loading={loading} vault={vault} agent={agent} comparison={comparison} config={config} selectedAgentId={selectedAgentId} filteredSkills={filteredSkills} groups={groups} actualGroups={actualGroups} selectedSkillKey={selectedSkillKey} selectedIds={selectedIds} actualSelectedPath={actualSelectedPath} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} onSelectSkill={(key) => setSelectedSkillKey(key)} onSelectActual={(entry) => { setActualSelectedPath(entry.relativePath); if (entry.skillKey) setSelectedSkillKey(entry.skillKey) }} onToggleSelected={toggleSelected} onToggleCollection={toggleCollection} />
         </main>

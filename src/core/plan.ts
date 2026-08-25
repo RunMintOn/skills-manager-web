@@ -13,6 +13,7 @@ export function buildSyncPlan(input: { config: SkillManagerConfig; vault: VaultS
     const id = `${input.agent.id}:${skillKey}`; const skill = findVaultSkillByKey(input.vault, skillKey); const row = input.comparison.rows.find((item) => item.skillKey === skillKey)
     if (!skill) { operations.push(blocked(id, skillKey, input.agent.id, [known.has(skillKey) ? "Skill is invalid and cannot be synchronized." : "Skill is not present in the Vault scan."])); continue }
     const risks = [...(row?.risks ?? [])]
+    if (input.vault.host !== agentConfig.host) { operations.push(blocked(id, skillKey, input.agent.id, [...risks, "连接操作暂时只支持同一环境：Baseline 与 Agent 必须使用相同 Host"], skill.relativePath)); continue }
     if (!input.agent.supported || !input.agent.rootExists) { operations.push(blocked(id, skillKey, input.agent.id, [...risks, !input.agent.supported ? "Agent host adapter is unavailable on this runtime." : "Agent path is missing or unreadable; this preview never creates it."], skill.relativePath)); continue }
     if (row?.state === "linked") { operations.push({ id, skillKey, skillPath: skill.relativePath, agentId: input.agent.id, action: "already-linked", targetPath: skill.absolutePath, risks, execution: "not-run" }); continue }
     if (row && row.state !== "pending") { operations.push(blocked(id, skillKey, input.agent.id, risks.length ? risks : [`Agent state is ${row.state}; destination is not safe to replace.`], skill.relativePath)); continue }

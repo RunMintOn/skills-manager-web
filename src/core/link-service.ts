@@ -239,6 +239,10 @@ export async function preflightLink(input: LinkSpec): Promise<LinkPreflight> {
   }
 
   const result = initialPreflight(spec)
+  if (spec.targetHost !== spec.linkHost) {
+    addRisk(result, "连接操作暂时只支持同一环境：目标和链接必须使用相同 Host")
+    return result
+  }
   let paths: RuntimePaths
   try {
     paths = resolveRuntimePaths(spec)
@@ -295,7 +299,7 @@ export async function preflightLink(input: LinkSpec): Promise<LinkPreflight> {
 
 export async function preflightBatchLinks(input: BatchLinkSpec): Promise<BatchLinkPreflight> {
   const failed = (spec: BatchLinkSpec, message: string): BatchLinkPreflight => ({ schemaVersion: 1, spec, ready: false, items: [], risks: [message] })
-  if (input.targetHost !== input.linkHost) return failed(input, "批量链接暂时只支持相同主机类型")
+  if (input.targetHost !== input.linkHost) return failed(input, "连接操作暂时只支持同一环境：目标和链接必须使用相同 Host")
 
   let spec: BatchLinkSpec
   try {

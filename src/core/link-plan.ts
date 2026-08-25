@@ -93,6 +93,7 @@ function createWindowsToWslPlan(input: LinkInput): LinkOperationPlan {
 }
 
 export function createLinkOperation(input: LinkInput): LinkOperationPlan {
+  if (input.vaultHost !== input.agentHost) throw new Error("连接操作暂时只支持同一环境：目标和链接必须使用相同 Host")
   if (input.vaultHost === "wsl" && input.agentHost === "wsl") {
     return createWslSymlinkCommand({ targetPath: input.targetPath, linkPath: input.linkPath })
   }

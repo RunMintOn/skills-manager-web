@@ -24,7 +24,7 @@ export interface CommonPath { id: string; name: string; host: HostKind; path: st
 /** 链接记录：skill -> agent（按 agentId 关联）。来源集合只存在应用配置里，文件系统上不可见（真相语义）。 */
 export interface LinkRecord { skill: string; collection: string; agentId: string }
 
-/** Windows 真相源到 WSL 镜像的单向同步配置。选择路径始终相对于 source 根目录。 */
+/** 两个不同 Host 的 Vault 之间的单向同步配置。选择路径始终相对于 source 根目录。 */
 export type MirrorSyncScope = "full" | "selected"
 export interface MirrorSyncConfig {
   source: VaultConfig

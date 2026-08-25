@@ -4,21 +4,16 @@ import { scanVault } from "./vault.ts"
 import { buildComparison } from "./compare.ts"
 import type { AgentScan, HostKind, LoadedConfig, StatusSnapshot, VaultConfig, WorkspaceSnapshot } from "./types.ts"
 
-/** Returns the local Vault for a host when a Windows→WSL mirror is configured. */
+/** Returns the configured mirror side for a host when a two-host mirror is configured. */
 export function vaultConfigForHost(config: LoadedConfig, host: HostKind): VaultConfig {
-  if (config.mirrorSync) return host === "windows" ? config.mirrorSync.source : config.mirrorSync.mirror
+  if (config.mirrorSync) return [config.mirrorSync.source, config.mirrorSync.mirror].find(function (side): boolean { return side.host === host }) ?? config.vault
   return config.vault
 }
 
 export async function scanWorkspace(config: LoadedConfig): Promise<WorkspaceSnapshot> {
   const vault = await scanVault(config.vault)
-  const localVaults = new Map<HostKind, Awaited<ReturnType<typeof scanVault>>>()
-  const displayedVault = vaultConfigForHost(config, config.vault.host)
-  if (displayedVault.path === config.vault.path) localVaults.set(config.vault.host, vault)
   const agents = await Promise.all(config.agents.map(async function (agent): Promise<AgentScan> {
-    const local = localVaults.get(agent.host) ?? await scanVault(vaultConfigForHost(config, agent.host))
-    localVaults.set(agent.host, local)
-    return scanAgent(agent, local)
+    return scanAgent(agent, vault)
   }))
   return { config, vault, agents }
 }
@@ -34,7 +29,7 @@ export function selectedAgent(snapshot: WorkspaceSnapshot): AgentScan | undefine
 
 export function buildStatusSnapshot(snapshot: WorkspaceSnapshot): StatusSnapshot {
   const agent = selectedAgent(snapshot)
-  const comparison = agent && vaultConfigForHost(snapshot.config, agent.host).host === snapshot.vault.host ? buildComparison(snapshot.vault, agent) : undefined
+  const comparison = agent && agent.host === snapshot.vault.host ? buildComparison(snapshot.vault, agent) : undefined
   return {
     schemaVersion: 1,
     tool: "skill-manager-web",

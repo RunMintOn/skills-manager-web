@@ -30,6 +30,7 @@ import {
   validateConfig,
 } from "./index.ts"
 import { fixturePath, resolveConfig } from "./config.ts"
+import { mirrorVaultForHost, synchronizeBaselineWithMirror } from "./baseline.ts"
 
 const execFileAsync = promisify(execFile)
 
@@ -61,7 +62,7 @@ describe("frontmatter and safe path boundaries", () => {
     expect(isSafeWslPath("/tmp/../escape")).toBe(false)
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "中文 skill")).not.toThrow()
     expect(() => appendSafeChild(getHostPathAdapter("wsl"), "/tmp/agent", "../escape")).toThrow()
-    expect(() => createLinkOperation({ vaultHost: "windows", agentHost: "wsl", targetPath: "C:\\\\Vault\\skill", linkPath: "/tmp/skill" })).not.toThrow()
+    expect(() => createLinkOperation({ vaultHost: "windows", agentHost: "wsl", targetPath: "C:\\\\Vault\\skill", linkPath: "/tmp/skill" })).toThrow("同一环境")
   })
 
   it("detects only unambiguous absolute Windows and WSL paths", () => {
@@ -168,9 +169,34 @@ describe("comparison and preview plan", () => {
     expect((create.link as { args: string[] }).args).not.toContain("&&")
     expect(await readFile(nodePath.join(fixturePath("agents/default"), "local-notes/README.md"), "utf8")).toBe(before)
   })
+
+  it("blocks a Skill connection when the active baseline and Agent use different hosts", async () => {
+    const baseConfig = createFixtureConfig()
+    const vault = await scanVault(baseConfig.vault)
+    const agent = await scanAgent(baseConfig.agents[0]!, vault)
+    const windowsConfig = {
+      ...baseConfig,
+      agents: [{ ...baseConfig.agents[0]!, id: "windows-agent", host: "windows" as const, path: "C:\\agents" }],
+    }
+    const windowsAgent = { ...agent, id: "windows-agent", host: "windows" as const, path: "C:\\agents" }
+    const plan = buildPlanForAgent({ config: windowsConfig, vault, agent: windowsAgent, selectedSkillIds: ["unicode-helper"] })
+    expect(plan.operations[0]?.action).toBe("blocked")
+    expect(plan.operations[0]?.risks.join("；")).toContain("同一环境")
+  })
 })
 
 describe("real generic link service", () => {
+  it("blocks cross-host link preflight even when both path formats are valid", async () => {
+    const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-cross-host-test-"))
+    try {
+      const target = nodePath.join(root, "source")
+      await mkdir(target)
+      const preflight = await preflightLink({ targetHost: "wsl", targetPath: target, linkHost: "windows", linkPath: "C:\\links\\source" })
+      expect(preflight.ready).toBe(false)
+      expect(preflight.risks.join("；")).toContain("同一环境")
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it("preflights, creates, scans and deletes a file link without deleting its target", async () => {
     const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-link-test-"))
     try {
@@ -275,6 +301,49 @@ describe("config validation", () => {
     expect(vaultConfigForHost(loaded, "wsl")).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
   })
 
+  it("rejects a mirror configuration whose active baseline path is stale", () => {
+    expect(() => validateConfig({
+      schemaVersion: 1,
+      vault: { path: "/tmp/stale-vault", host: "wsl" },
+      agents: [],
+      mirrorSync: { source: { path: "C:\\Vault", host: "windows" }, mirror: { path: "/tmp/wsl-vault", host: "wsl" }, scope: "full" },
+    })).toThrow("vault.path must match mirrorSync.mirror.path")
+  })
+
+  it("switches the baseline to the matching mirror side and keeps both values synchronized", () => {
+    const config = validateConfig({
+      schemaVersion: 1,
+      vault: { path: "/tmp/wsl-vault", host: "wsl" },
+      agents: [],
+      mirrorSync: { source: { path: "C:\\Vault", host: "windows" }, mirror: { path: "/tmp/wsl-vault", host: "wsl" }, scope: "full" },
+    })
+    expect(mirrorVaultForHost(config, "windows")).toEqual({ path: "C:\\Vault", host: "windows" })
+    const windows = synchronizeBaselineWithMirror(config, { path: "D:\\Vault", host: "windows" })
+    expect(windows.vault).toEqual({ path: "D:\\Vault", host: "windows" })
+    expect(windows.mirrorSync?.source).toEqual({ path: "D:\\Vault", host: "windows" })
+    expect(windows.mirrorSync?.mirror).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
+    const wsl = synchronizeBaselineWithMirror(windows, { path: "/tmp/other-vault", host: "wsl" })
+    expect(wsl.vault).toEqual({ path: "/tmp/other-vault", host: "wsl" })
+    expect(wsl.mirrorSync?.mirror).toEqual({ path: "/tmp/other-vault", host: "wsl" })
+  })
+
+  it("accepts swapped source and mirror Hosts", () => {
+    const config = validateConfig({
+      schemaVersion: 1,
+      vault: { path: "/tmp/wsl-vault", host: "wsl" },
+      agents: [],
+      mirrorSync: { source: { path: "/tmp/wsl-vault", host: "wsl" }, mirror: { path: "C:\\Vault", host: "windows" }, scope: "full" },
+    })
+    expect(mirrorVaultForHost(config, "wsl")).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
+    expect(mirrorVaultForHost(config, "windows")).toEqual({ path: "C:\\Vault", host: "windows" })
+    const loaded = resolveConfig(config, "/tmp/config.json")
+    expect(vaultConfigForHost(loaded, "wsl")).toEqual({ path: "/tmp/wsl-vault", host: "wsl" })
+    expect(vaultConfigForHost(loaded, "windows")).toEqual({ path: "C:\\Vault", host: "windows" })
+    const windows = synchronizeBaselineWithMirror(config, { path: "D:\\Vault", host: "windows" })
+    expect(windows.vault).toEqual({ path: "D:\\Vault", host: "windows" })
+    expect(windows.mirrorSync?.mirror).toEqual({ path: "D:\\Vault", host: "windows" })
+  })
+
   it("accepts link records, last scan path, and automatic path detection preference", () => {
     const config = validateConfig({
       schemaVersion: 1,
@@ -333,6 +402,33 @@ describe("Windows-to-WSL mirror sync", () => {
     } finally {
       await rm(source.wsl, { recursive: true, force: true })
       await rm(mirror, { recursive: true, force: true })
+    }
+  })
+
+  it("syncs a WSL source to a Windows mirror after roles are swapped", async () => {
+    const source = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-reverse-source-"))
+    const mirror = await createWindowsTempDirectory()
+    try {
+      await mkdir(nodePath.join(source, "collection", "skill", "docs"), { recursive: true })
+      await writeFile(nodePath.join(source, "collection", "skill", "SKILL.md"), "reverse source skill")
+      await writeFile(nodePath.join(source, "collection", "skill", "docs", "guide.md"), "reverse source guide")
+      await mkdir(nodePath.join(mirror.wsl, "collection", "skill"), { recursive: true })
+      await writeFile(nodePath.join(mirror.wsl, "collection", "skill", "SKILL.md"), "old")
+      await writeFile(nodePath.join(mirror.wsl, "collection", "skill", "stale.md"), "delete")
+
+      const sync = { source: { host: "wsl" as const, path: source }, mirror: { host: "windows" as const, path: mirror.windows }, scope: "selected" as const, selectedPaths: ["collection/skill"] }
+      const plan = await planMirrorSync(sync)
+      expect(plan).toMatchObject({ ready: true, sync: { source: { host: "wsl" }, mirror: { host: "windows" } } })
+      expect(plan.operations.some((item) => item.action === "copy-file" && item.relativePath === "collection/skill/SKILL.md")).toBe(true)
+      expect(plan.operations.some((item) => item.action === "delete-file" && item.relativePath === "collection/skill/stale.md")).toBe(true)
+      const execution = await executeMirrorSync(plan)
+      expect(execution.results.every((item) => item.success)).toBe(true)
+      expect(await readFile(nodePath.join(mirror.wsl, "collection", "skill", "SKILL.md"), "utf8")).toBe("reverse source skill")
+      expect(await readFile(nodePath.join(mirror.wsl, "collection", "skill", "docs", "guide.md"), "utf8")).toBe("reverse source guide")
+      await expect(lstat(nodePath.join(mirror.wsl, "collection", "skill", "stale.md"))).rejects.toThrow()
+    } finally {
+      await rm(source, { recursive: true, force: true })
+      await rm(mirror.wsl, { recursive: true, force: true })
     }
   })
 })

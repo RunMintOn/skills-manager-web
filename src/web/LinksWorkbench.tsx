@@ -58,7 +58,7 @@ type CommonPathModalProps = {
   onSave: () => void
 }
 
-const emptySpec: LinkSpec = { targetHost: "wsl", targetPath: "", linkHost: "wsl", linkPath: "" }
+function emptySpecForHost(host: HostKind): LinkSpec { return { targetHost: host, targetPath: "", linkHost: host, linkPath: "" } }
 const entryLabels: Record<string, string> = {
   file: "文件",
   directory: "目录",
@@ -226,7 +226,7 @@ function CommonPathModal({ draft, editing, autoDetectPathHost, onChange, onClose
 }
 
 export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Props): ReactElement {
-  const [spec, setSpec] = useState<LinkSpec>(emptySpec)
+  const [spec, setSpec] = useState<LinkSpec>(() => emptySpecForHost(config.vault.host))
   const [batchMode, setBatchMode] = useState(false)
   const [preflight, setPreflight] = useState<LinkPreflight | null>(null)
   const [batchPreflight, setBatchPreflight] = useState<BatchLinkPreflight | null>(null)
@@ -247,6 +247,11 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
   function updateTargetPath(targetPath: string): void { updateSpec({ targetPath, targetHost: hostForPath(targetPath, spec.targetHost) }) }
   function updateLinkPath(linkPath: string): void { updateSpec({ linkPath, linkHost: hostForPath(linkPath, spec.linkHost) }) }
   function updateScanPath(path: string): void { setScanPath(path); setScanHost((host) => hostForPath(path, host)) }
+
+  useEffect(function syncEmptyConnectionHost(): void {
+    if (spec.targetPath || spec.linkPath) return
+    setSpec(emptySpecForHost(config.vault.host))
+  }, [config.vault.host, spec.linkPath, spec.targetPath])
 
   useEffect(function restoreLastScanPath(): void {
     if (!config.lastScanPath || scanPath) return
@@ -475,7 +480,7 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
           <label className="batch-mode-toggle"><input type="checkbox" checked={batchMode} onChange={(event) => { setBatchMode(event.target.checked); setPreflight(null); setBatchPreflight(null) }} />批量链接源文件夹中的 Skill 子目录</label>
           <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={updateTargetPath} onFill={fillTarget} />
           <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={updateLinkPath} onFill={fillLink} />
-          <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpec); setPreflight(null); setBatchPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : batchMode ? "预检批量链接" : "预检链接"}</button></div>
+          <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpecForHost(config.vault.host)); setPreflight(null); setBatchPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : batchMode ? "预检批量链接" : "预检链接"}</button></div>
           <p className="safety-note">{batchMode ? "只读取源文件夹直接子目录中包含 SKILL.md 的目录，并将它们平铺链接到目标文件夹。" : "预检会确认目标存在、链接路径不存在、父目录可用，并阻止覆盖普通文件或目录。"}</p>
         </div>
       </section>

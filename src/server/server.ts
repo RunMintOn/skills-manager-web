@@ -25,7 +25,6 @@ import {
   scanLinkDirectory,
   scanVault,
   scanWorkspace,
-  vaultConfigForHost,
   windowsPathToWsl,
   writeConfig,
   type AgentConfig,
@@ -168,7 +167,7 @@ async function handleAgent(response: ServerResponse, id: string): Promise<void> 
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const vault = await scanVault(loaded.vault)
   const agent = await scanAgent(agentConfig, vault)
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, agent, comparison: buildComparison(vault, agent), execution: "read-only" })
 }
@@ -275,7 +274,7 @@ async function handleSync(request: IncomingMessage, response: ServerResponse): P
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const vault = await scanVault(loaded.vault)
   const fallback = vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
   const plan = buildPlanForAgent({ config: loaded, vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   const results: SyncResult[] = []
@@ -316,14 +315,14 @@ async function handlePlan(request: IncomingMessage, response: ServerResponse): P
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
-  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const vault = await scanVault(loaded.vault)
   const fallback = vault.skills.filter(function (skill): boolean { return skill.validity === "valid" }).map(function (skill): string { return skill.relativePath })
   const plan = buildPlanForAgent({ config: loaded, vault, agent, selectedSkillIds: selectedSkillIds(body, fallback) })
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, plan, execution: "not-run" })
 }
 
 function configuredMirrorSync(loaded: LoadedConfig): MirrorSyncConfig {
-  if (!loaded.mirrorSync) throw new Error("请先保存 Windows 源 Vault 与 WSL 镜像路径")
+  if (!loaded.mirrorSync) throw new Error("请先保存源 Vault 与镜像 Vault 路径")
   return loaded.mirrorSync
 }
 
@@ -362,6 +361,10 @@ async function handleAgentLinkConvert(request: IncomingMessage, response: Server
     sendJson(response, 404, errorJson("agent not found", "not-found"))
     return
   }
+  if (agentConfig.host !== loaded.vault.host) {
+    sendJson(response, 400, errorJson("连接操作暂时只支持同一环境：Baseline 与 Agent 必须使用相同 Host", "cross-host-disabled"))
+    return
+  }
   const name = body.name.trim()
   const adapter = getHostPathAdapter(agentConfig.host)
   let directory: string
@@ -378,7 +381,7 @@ async function handleAgentLinkConvert(request: IncomingMessage, response: Server
     sendJson(response, 400, errorJson(`无效 skill：目录名与 SKILL.md 的 name 不一致，不能转换。`, "invalid-skill"))
     return
   }
-  const vault = await scanVault(vaultConfigForHost(loaded, agentConfig.host))
+  const vault = await scanVault(loaded.vault)
   const skill = findVaultSkillById(vault, name)
   if (!skill) {
     sendJson(response, 400, errorJson(`无法识别 ${name} 的来源，不能转换（它不在 vault 中）。`, "not-in-vault"))

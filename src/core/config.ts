@@ -56,8 +56,7 @@ function validateMirrorSync(value: unknown): MirrorSyncConfig {
   nonEmpty(sync.mirror.path, "mirrorSync.mirror.path")
   host(sync.source.host, "mirrorSync.source.host")
   host(sync.mirror.host, "mirrorSync.mirror.host")
-  if (sync.source.host !== "windows") throw new Error("mirrorSync.source.host must be windows")
-  if (sync.mirror.host !== "wsl") throw new Error("mirrorSync.mirror.host must be wsl")
+  if (sync.source.host === sync.mirror.host) throw new Error("mirrorSync.source.host and mirrorSync.mirror.host must be different")
   if (sync.scope !== "full" && sync.scope !== "selected") throw new Error("mirrorSync.scope must be full or selected")
   if (sync.selectedPaths !== undefined && !Array.isArray(sync.selectedPaths)) throw new Error("mirrorSync.selectedPaths must be an array")
   const selectedPaths = (sync.selectedPaths ?? []).map(function (item, index): string {
@@ -70,7 +69,7 @@ function validateMirrorSync(value: unknown): MirrorSyncConfig {
     nonEmpty(item, `mirrorSync.exclude[${index}]`)
     return item.trim()
   })
-  return { source: { path: sync.source.path.trim(), host: "windows" }, mirror: { path: sync.mirror.path.trim(), host: "wsl" }, scope: sync.scope, ...(selectedPaths.length ? { selectedPaths } : {}), ...(exclude.length ? { exclude } : {}) }
+  return { source: { path: sync.source.path.trim(), host: sync.source.host }, mirror: { path: sync.mirror.path.trim(), host: sync.mirror.host }, scope: sync.scope, ...(selectedPaths.length ? { selectedPaths } : {}), ...(exclude.length ? { exclude } : {}) }
 }
 
 function validateCommonPath(value: unknown, index: number, ids: Set<string>): CommonPath {
@@ -93,6 +92,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
   if (!value.vault || typeof value.vault !== "object") throw new Error("vault is required")
   nonEmpty(value.vault.path, "vault.path")
   host(value.vault.host, "vault.host")
+  const vaultValue = value.vault
   if (value.autoDetectPathHost !== undefined && typeof value.autoDetectPathHost !== "boolean") throw new Error("autoDetectPathHost must be a boolean")
   if (!Array.isArray(value.agents)) throw new Error("agents must be an array")
 
@@ -117,6 +117,20 @@ export function validateConfig(input: unknown): SkillManagerConfig {
     : []
 
   const mirrorSync = value.mirrorSync === undefined ? undefined : validateMirrorSync(value.mirrorSync)
+  if (mirrorSync) {
+    const expectedEntry = [
+      ["source", mirrorSync.source] as const,
+      ["mirror", mirrorSync.mirror] as const,
+    ].find(function (item): boolean { return item[1].host === vaultValue.host })
+    if (!expectedEntry) throw new Error(`mirrorSync has no Vault for the selected Host: ${vaultValue.host}`)
+    const normalize = vaultValue.host === "windows" ? nodePath.win32.normalize : nodePath.posix.normalize
+    const baselinePath = normalize(vaultValue.path.trim())
+    const expectedPath = normalize(expectedEntry[1].path)
+    const samePath = vaultValue.host === "windows"
+      ? baselinePath.toLocaleLowerCase("en-US") === expectedPath.toLocaleLowerCase("en-US")
+      : baselinePath === expectedPath
+    if (!samePath) throw new Error(`vault.path must match mirrorSync.${expectedEntry[0]}.path for the selected Host`)
+  }
 
   let lastScanPath: string | undefined
   if (value.lastScanPath !== undefined) {

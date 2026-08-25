@@ -35,3 +35,9 @@ NO_PROXY 里的 127.* 通配对 curl 无效（curl 只认后缀匹配），导�
 **Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
 
 Windows PowerShell stdout used a legacy code page, corrupting Unicode paths when consumed by WSL Node. Native bridge scripts must set Console.OutputEncoding to UTF-8.
+
+## 2026-08-25T16:53:07+08:00
+
+**Path:** `/home/lee/11MyProjrct/44-skills-manager-web`
+
+本次任务中，前端复用 src/core/config.ts 的纯状态函数导致 Vite 将 Node-only fs/path/url 依赖打入浏览器并构建失败。将浏览器安全的状态逻辑拆到无 Node 依赖的独立模块可避免此问题。
