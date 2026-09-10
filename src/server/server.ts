@@ -21,6 +21,7 @@ import {
   preflightDeleteLink,
   preflightLink,
   readConfigOrFixture,
+  runtimeHost,
   scanAgent,
   scanLinkDirectory,
   scanVault,
@@ -112,20 +113,33 @@ function optionalObjectBody(value: unknown): Record<string, unknown> {
 }
 
 function hostValue(value: unknown, label: string): HostKind {
-  if (value !== "wsl" && value !== "windows") throw new Error(`${label} must be wsl or windows`)
+  if (value !== "wsl" && value !== "windows" && value !== "macos") throw new Error(`${label} must be wsl, windows or macos`)
   return value
+}
+
+function assertHostAvailable(host: HostKind): void {
+  if (runtimeHost() === "macos" && host !== "macos") throw new Error("macOS 工作区只支持 macos Host")
+}
+
+function assertRuntimeConfig(config: SkillManagerConfig): void {
+  if (runtimeHost() !== "macos") return
+  const hosts = [config.vault.host, ...config.agents.map(function (agent): HostKind { return agent.host }), ...(config.commonPaths ?? []).map(function (item): HostKind { return item.host })]
+  if (hosts.some(function (host): boolean { return host !== "macos" }) || config.mirrorSync) throw new Error("macOS 工作区只接受本地 macos 配置")
 }
 
 function linkSpecBody(value: unknown): LinkSpec {
   const body = objectBody(value)
   const source = body.spec && typeof body.spec === "object" && !Array.isArray(body.spec) ? body.spec as Record<string, unknown> : body
   if (typeof source.targetPath !== "string" || typeof source.linkPath !== "string") throw new Error("targetPath and linkPath are required")
-  return {
+  const spec = {
     targetHost: hostValue(source.targetHost, "targetHost"),
     targetPath: source.targetPath,
     linkHost: hostValue(source.linkHost, "linkHost"),
     linkPath: source.linkPath,
   }
+  assertHostAvailable(spec.targetHost)
+  assertHostAvailable(spec.linkHost)
+  return spec
 }
 
 function selectedSkillIds(body: Record<string, unknown>, fallback: string[]): string[] {
@@ -138,6 +152,7 @@ async function handleInit(response: ServerResponse): Promise<void> {
   const snapshot = await scanWorkspace(loaded)
   sendJson(response, 200, {
     schemaVersion: JSON_SCHEMA,
+    runtimeHost: runtimeHost(),
     service: { host: HOST, port: PORT, execution: "enabled" },
     config: publicConfig(loaded),
     vault: { path: loaded.vault.path, host: loaded.vault.host, summary: snapshot.vault.summary },
@@ -145,7 +160,7 @@ async function handleInit(response: ServerResponse): Promise<void> {
       return { ...agent, issueCount: snapshot.agents.find(function (item): boolean { return item.id === agent.id })?.summary.issueCount ?? 0 }
     }),
     selectedAgentId: selectedAgentId(loaded),
-    safety: { vault: "read-only", sync: "enabled", filesystemWrites: "enabled" },
+    safety: { vault: "read-only", sync: runtimeHost() === "macos" ? "disabled" : "enabled", filesystemWrites: "enabled" },
   })
 }
 
@@ -156,6 +171,7 @@ async function handleConfig(request: IncomingMessage, response: ServerResponse, 
   }
   const body = await readBody(request)
   const candidate = body && typeof body === "object" && "config" in body ? (body as { config: unknown }).config : body
+  assertRuntimeConfig(candidate as SkillManagerConfig)
   const saved = await writeConfig(configPath, candidate as SkillManagerConfig)
   sendJson(response, 200, publicConfig(saved))
 }
@@ -213,6 +229,7 @@ async function handleBatchLinkCreate(request: IncomingMessage, response: ServerR
 async function handleLinkDelete(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const body = objectBody(await readBody(request))
   const host = hostValue(body.host, "host")
+  assertHostAvailable(host)
   if (typeof body.path !== "string") throw new Error("path is required")
   const input = { host, path: body.path }
   const preflight = await preflightDeleteLink(input)
@@ -223,6 +240,7 @@ async function handleLinkDelete(request: IncomingMessage, response: ServerRespon
 async function handleLinkScan(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const body = objectBody(await readBody(request))
   const host = hostValue(body.host, "host")
+  assertHostAvailable(host)
   if (typeof body.path !== "string") throw new Error("path is required")
   const scan = await scanLinkDirectory({ host, path: body.path, recursive: body.recursive === true })
   sendJson(response, 200, { schemaVersion: JSON_SCHEMA, scan })
@@ -322,6 +340,7 @@ async function handlePlan(request: IncomingMessage, response: ServerResponse): P
 }
 
 function configuredMirrorSync(loaded: LoadedConfig): MirrorSyncConfig {
+  if (runtimeHost() === "macos") throw new Error("macOS 工作区不支持 Vault 镜像")
   if (!loaded.mirrorSync) throw new Error("请先保存源 Vault 与镜像 Vault 路径")
   return loaded.mirrorSync
 }

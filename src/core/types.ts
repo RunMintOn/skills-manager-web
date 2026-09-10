@@ -1,4 +1,4 @@
-export type HostKind = "wsl" | "windows"
+export type HostKind = "wsl" | "windows" | "macos"
 export type ScanSeverity = "warning" | "error"
 export type VaultSkillValidity = "valid" | "invalid"
 
@@ -207,12 +207,21 @@ export interface WindowsSymlinkOperation {
   linkPath: string
   directoryOnly: boolean
 }
-export type LinkOperationPlan = WslCommandOperation | WindowsJunctionOperation | WindowsSymlinkOperation
+export interface MacosSymlinkOperation {
+  kind: "macos-symlink"
+  host: "macos"
+  api: "fs.promises.symlink"
+  fsArgs: [targetPath: string, linkPath: string, type: "file" | "dir"]
+  targetPath: string
+  linkPath: string
+  directoryOnly: boolean
+}
+export type LinkOperationPlan = WslCommandOperation | WindowsJunctionOperation | WindowsSymlinkOperation | MacosSymlinkOperation
 
 export type LinkTargetKind = "file" | "directory"
-export type LinkEntryKind = "file" | "directory" | "wsl-symlink" | "windows-symlink" | "windows-junction" | "unsupported-link" | "other"
+export type LinkEntryKind = "file" | "directory" | "wsl-symlink" | "macos-symlink" | "windows-symlink" | "windows-junction" | "unsupported-link" | "other"
 export type LinkTargetStatus = "not-applicable" | "exists" | "broken"
-export type LinkStrategy = "wsl-symlink" | "wsl-to-windows-symlink" | "windows-to-wsl-symlink" | "windows-junction" | "windows-symlink"
+export type LinkStrategy = "wsl-symlink" | "macos-symlink" | "wsl-to-windows-symlink" | "windows-to-wsl-symlink" | "windows-junction" | "windows-symlink"
 
 export interface LinkSpec {
   targetHost: HostKind

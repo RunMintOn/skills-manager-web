@@ -3,7 +3,7 @@ import { constants } from "node:fs"
 import { access, lstat, readlink, readdir, realpath, rename, rm, stat, symlink, unlink } from "node:fs/promises"
 import nodePath from "node:path"
 import { appendSafeChild, getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
-import { assertSafeWindowsPath, assertSafeWslPath } from "./link-plan.ts"
+import { assertSafeMacosPath, assertSafeWindowsPath, assertSafeWslPath } from "./link-plan.ts"
 import { scanWindowsDirectory } from "./windows-scan.ts"
 import type {
   BatchLinkItem,
@@ -39,6 +39,8 @@ function adapterFor(host: HostKind): HostPathAdapter {
 function normalizePath(host: HostKind, value: string): string {
   if (host === "wsl") {
     assertSafeWslPath(value, "path")
+  } else if (host === "macos") {
+    assertSafeMacosPath(value, "path")
   } else {
     assertSafeWindowsPath(value, "path")
   }
@@ -46,6 +48,10 @@ function normalizePath(host: HostKind, value: string): string {
 }
 
 function runtimePath(host: HostKind, value: string): string {
+  if (host === "macos") {
+    if (process.platform !== "darwin") throw new Error("macOS paths are unavailable on this runtime")
+    return value
+  }
   if (host === "wsl") {
     if (process.platform === "win32") {
       throw new Error("WSL paths are unavailable from a native Windows runtime")
@@ -94,6 +100,7 @@ function strategyFor(targetHost: HostKind, linkHost: HostKind, kind: LinkTargetK
     return kind === "directory" ? "windows-junction" : "windows-symlink"
   }
   if (targetHost === "wsl" && linkHost === "wsl") return "wsl-symlink"
+  if (targetHost === "macos" && linkHost === "macos") return "macos-symlink"
   if (targetHost === "wsl" && linkHost === "windows") return "wsl-to-windows-symlink"
   return "windows-to-wsl-symlink"
 }
@@ -119,6 +126,17 @@ function buildOperation(spec: LinkSpec, strategy: LinkStrategy, kind: LinkTarget
       kind: "windows-symlink",
       host: "windows",
       api: windowsApi(),
+      fsArgs: [spec.targetPath, spec.linkPath, kind === "directory" ? "dir" : "file"],
+      targetPath: spec.targetPath,
+      linkPath: spec.linkPath,
+      directoryOnly: kind === "directory",
+    }
+  }
+  if (strategy === "macos-symlink") {
+    return {
+      kind: "macos-symlink",
+      host: "macos",
+      api: "fs.promises.symlink",
       fsArgs: [spec.targetPath, spec.linkPath, kind === "directory" ? "dir" : "file"],
       targetPath: spec.targetPath,
       linkPath: spec.linkPath,
@@ -184,7 +202,9 @@ async function classifyRuntimeEntry(host: HostKind, path: string, info: RuntimeS
       const targetInfo = await stat(target).catch(function (): undefined { return undefined })
       return targetInfo?.isDirectory() ? "windows-junction" : "windows-symlink"
     }
-    return host === "wsl" ? "wsl-symlink" : "windows-symlink"
+    if (host === "wsl") return "wsl-symlink"
+    if (host === "macos") return "macos-symlink"
+    return "windows-symlink"
   }
   if (info.isDirectory()) return "directory"
   if (info.isFile()) return "file"
@@ -393,6 +413,11 @@ async function executeWindowsOperation(spec: LinkSpec, strategy: "windows-juncti
   await runProcess("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShell(script)])
 }
 
+async function executeMacosOperation(spec: LinkSpec, kind: LinkTargetKind): Promise<void> {
+  const paths = resolveRuntimePaths(spec)
+  await symlink(paths.target, paths.link, kind === "directory" ? "dir" : "file")
+}
+
 async function executeWslOperation(spec: LinkSpec): Promise<void> {
   const paths = resolveRuntimePaths(spec)
   if (process.platform !== "win32") {
@@ -425,6 +450,8 @@ export async function executeLink(input: LinkSpec): Promise<LinkExecutionResult>
   try {
     if (preflight.strategy === "windows-junction" || preflight.strategy === "windows-symlink") {
       await executeWindowsOperation(preflight.spec, preflight.strategy, preflight.target.kind)
+    } else if (preflight.strategy === "macos-symlink") {
+      await executeMacosOperation(preflight.spec, preflight.target.kind)
     } else {
       await executeWslOperation(preflight.spec)
     }

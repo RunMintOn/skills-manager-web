@@ -4,6 +4,7 @@ const API_ROOT = "/api"
 
 export interface InitResponse {
   schemaVersion: 1
+  runtimeHost: HostKind
   service: { host: string; port: number; execution: "enabled" }
   config: { configPath: string; exists: boolean; config: SkillManagerConfig }
   vault: { path: string; host: HostKind; summary: VaultScan["summary"] }

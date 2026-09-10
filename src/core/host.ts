@@ -16,11 +16,23 @@ export interface HostPathAdapter {
 
 const POSIX = nodePath.posix
 const WINDOWS = nodePath.win32
+export function runtimeHost(platform: NodeJS.Platform = process.platform): HostKind {
+  if (platform === "darwin") return "macos"
+  if (platform === "win32") return "windows"
+  return "wsl"
+}
+
+function supportsRuntime(host: HostKind): boolean {
+  if (host === "windows") return process.platform === "win32"
+  if (host === "macos") return process.platform === "darwin"
+  return process.platform !== "win32"
+}
+
 export function getHostPathAdapter(host: HostKind): HostPathAdapter {
   const path = host === "windows" ? WINDOWS : POSIX
   return {
     host,
-    supportedRuntime: host === "windows" ? process.platform === "win32" : process.platform !== "win32",
+    supportedRuntime: supportsRuntime(host),
     separator: path.sep,
     isAbsolute: path.isAbsolute,
     normalize: path.normalize,
@@ -58,4 +70,8 @@ export function wslPathToWindows(value: string): string | undefined {
   if (!match) return undefined
   return `${match[1]!.toLocaleUpperCase("en-US")}:\\${(match[2] ?? "").replaceAll("/", "\\")}`
 }
-export function hostPathDescription(host: HostKind): string { return host === "wsl" ? "WSL/POSIX" : "Windows/NT" }
+export function hostPathDescription(host: HostKind): string {
+  if (host === "wsl") return "WSL/POSIX"
+  if (host === "macos") return "macOS/POSIX"
+  return "Windows/NT"
+}

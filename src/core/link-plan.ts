@@ -16,6 +16,10 @@ export function isSafeWslPath(value: string): boolean {
   return !value.split("/").some(function (part): boolean { return part === "." || part === ".." })
 }
 
+export function isSafeMacosPath(value: string): boolean {
+  return isSafeWslPath(value)
+}
+
 export function isSafeWindowsPath(value: string): boolean {
   const absolute = /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith("\\\\")
   if (!absolute || value.includes("\0")) return false
@@ -24,6 +28,10 @@ export function isSafeWindowsPath(value: string): boolean {
 
 export function assertSafeWslPath(value: string, label: string): void {
   if (!isSafeWslPath(value)) throw new Error(`${label} must be an absolute safe WSL path without traversal segments`)
+}
+
+export function assertSafeMacosPath(value: string, label: string): void {
+  if (!isSafeMacosPath(value)) throw new Error(`${label} must be an absolute safe macOS path without traversal segments`)
 }
 
 export function assertSafeWindowsPath(value: string, label: string): void {
@@ -77,6 +85,21 @@ export function createWindowsJunctionPlan(input: { targetPath: string; linkPath:
   }
 }
 
+export function createMacosSymlinkPlan(input: { targetPath: string; linkPath: string }): LinkOperationPlan {
+  assertSafeMacosPath(input.targetPath, "targetPath")
+  assertSafeMacosPath(input.linkPath, "linkPath")
+  assertDistinctPaths(input.targetPath, input.linkPath)
+  return {
+    kind: "macos-symlink",
+    host: "macos",
+    api: "fs.promises.symlink",
+    fsArgs: [input.targetPath, input.linkPath, "dir"],
+    targetPath: input.targetPath,
+    linkPath: input.linkPath,
+    directoryOnly: true,
+  }
+}
+
 function createWindowsToWslPlan(input: LinkInput): LinkOperationPlan {
   const target = windowsPathToWsl(input.targetPath)
   if (!target) throw new Error("Windows Vault path is not a drive path supported by the WSL adapter")
@@ -99,6 +122,9 @@ export function createLinkOperation(input: LinkInput): LinkOperationPlan {
   }
   if (input.vaultHost === "windows" && input.agentHost === "windows") {
     return createWindowsJunctionPlan({ targetPath: input.targetPath, linkPath: input.linkPath })
+  }
+  if (input.vaultHost === "macos" && input.agentHost === "macos") {
+    return createMacosSymlinkPlan({ targetPath: input.targetPath, linkPath: input.linkPath })
   }
   if (input.vaultHost === "wsl" && input.agentHost === "windows") {
     const linkPath = windowsPathToWsl(input.linkPath)

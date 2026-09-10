@@ -3,6 +3,7 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
 import { isAbsolutePathForHost } from "./path-host.ts"
+import { runtimeHost } from "./host.ts"
 import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, MirrorSyncConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -24,6 +25,10 @@ export function createFixtureConfig(): SkillManagerConfig {
   }
 }
 
+export function createEmptyConfig(host: HostKind = runtimeHost()): SkillManagerConfig {
+  return { schemaVersion: 1, autoDetectPathHost: true, vault: { path: "", host }, agents: [] }
+}
+
 function nonEmpty(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim() || value.includes("\0")) {
     throw new Error(`${label} must be a non-empty string without NUL`)
@@ -31,7 +36,32 @@ function nonEmpty(value: unknown, label: string): asserts value is string {
 }
 
 function host(value: unknown, label: string): asserts value is HostKind {
-  if (value !== "wsl" && value !== "windows") throw new Error(`${label} must be \"wsl\" or \"windows\"`)
+  if (value !== "wsl" && value !== "windows" && value !== "macos") throw new Error(`${label} must be \"wsl\", \"windows\" or \"macos\"`)
+}
+
+function validateHostPath(value: string, hostKind: HostKind, label: string): void {
+  if (hostKind === "macos" && !isAbsolutePathForHost(hostKind, value)) {
+    throw new Error(`${label} must be an absolute macOS path`)
+  }
+}
+
+function isEmptySetup(value: Partial<SkillManagerConfig>, vaultPath: string): boolean {
+  return Boolean(
+    typeof value.vault?.path === "string" &&
+    vaultPath === "" &&
+    value.agents?.length === 0 &&
+    (!value.commonPaths || value.commonPaths.length === 0) &&
+    (!value.links || value.links.length === 0) &&
+    value.mirrorSync === undefined &&
+    value.selectedAgentId === undefined,
+  )
+}
+
+function configuredVaultHost(input: unknown): unknown {
+  if (!input || typeof input !== "object" || !("vault" in input)) return undefined
+  const vault = input.vault
+  if (!vault || typeof vault !== "object" || !("host" in vault)) return undefined
+  return vault.host
 }
 
 function validateAgent(value: unknown, index: number, ids: Set<string>): AgentConfig {
@@ -41,6 +71,7 @@ function validateAgent(value: unknown, index: number, ids: Set<string>): AgentCo
   nonEmpty(agent.name, `agents[${index}].name`)
   nonEmpty(agent.path, `agents[${index}].path`)
   host(agent.host, `agents[${index}].host`)
+  validateHostPath(agent.path, agent.host, `agents[${index}].path`)
   const id = agent.id.trim()
   if (ids.has(id)) throw new Error(`duplicate agent id: ${id}`)
   ids.add(id)
@@ -79,6 +110,7 @@ function validateCommonPath(value: unknown, index: number, ids: Set<string>): Co
   nonEmpty(commonPath.name, `commonPaths[${index}].name`)
   nonEmpty(commonPath.path, `commonPaths[${index}].path`)
   host(commonPath.host, `commonPaths[${index}].host`)
+  validateHostPath(commonPath.path, commonPath.host, `commonPaths[${index}].path`)
   const id = commonPath.id.trim()
   if (ids.has(id)) throw new Error(`duplicate common path id: ${id}`)
   ids.add(id)
@@ -90,11 +122,13 @@ export function validateConfig(input: unknown): SkillManagerConfig {
   const value = input as Partial<SkillManagerConfig>
   if (value.schemaVersion !== 1) throw new Error("unsupported config schemaVersion; expected 1")
   if (!value.vault || typeof value.vault !== "object") throw new Error("vault is required")
-  nonEmpty(value.vault.path, "vault.path")
   host(value.vault.host, "vault.host")
   const vaultValue = value.vault
   if (value.autoDetectPathHost !== undefined && typeof value.autoDetectPathHost !== "boolean") throw new Error("autoDetectPathHost must be a boolean")
   if (!Array.isArray(value.agents)) throw new Error("agents must be an array")
+  const vaultPath = typeof value.vault.path === "string" ? value.vault.path.trim() : ""
+  if (!isEmptySetup(value, vaultPath)) nonEmpty(value.vault.path, "vault.path")
+  if (vaultPath) validateHostPath(vaultPath, vaultValue.host, "vault.path")
 
   const agentIds = new Set<string>()
   const agents = value.agents.map(function (item: unknown, index: number): AgentConfig {
@@ -118,6 +152,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
 
   const mirrorSync = value.mirrorSync === undefined ? undefined : validateMirrorSync(value.mirrorSync)
   if (mirrorSync) {
+    if (mirrorSync.source.host === "macos" || mirrorSync.mirror.host === "macos") throw new Error("mirrorSync does not support macos")
     const expectedEntry = [
       ["source", mirrorSync.source] as const,
       ["mirror", mirrorSync.mirror] as const,
@@ -158,6 +193,7 @@ export function validateConfig(input: unknown): SkillManagerConfig {
 }
 
 function resolvePath(value: string, hostKind: HostKind, directory: string): string {
+  if (!value.trim()) return ""
   return isAbsolutePathForHost(hostKind, value) ? value : nodePath.resolve(directory, value)
 }
 
@@ -198,9 +234,15 @@ export async function readConfig(configPath = DEFAULT_CONFIG_PATH): Promise<Load
   return resolveConfig(validateConfig(raw), absolute, true)
 }
 
-export async function readConfigOrFixture(configPath = DEFAULT_CONFIG_PATH): Promise<LoadedConfig> {
-  if (await configExists(configPath)) return readConfig(configPath)
-  return resolveConfig(createFixtureConfig(), configPath, false)
+export async function readConfigOrFixture(configPath = DEFAULT_CONFIG_PATH, expectedHost: HostKind = runtimeHost()): Promise<LoadedConfig> {
+  if (await configExists(configPath)) {
+    if (expectedHost === "macos") {
+      const raw = JSON.parse(await readFile(nodePath.resolve(configPath), "utf8")) as unknown
+      if (configuredVaultHost(raw) !== "macos") return resolveConfig(createEmptyConfig("macos"), configPath, false)
+    }
+    return readConfig(configPath)
+  }
+  return resolveConfig(expectedHost === "macos" ? createEmptyConfig("macos") : createFixtureConfig(), configPath, false)
 }
 
 export async function writeConfig(configPath: string, config: SkillManagerConfig): Promise<LoadedConfig> {
@@ -216,7 +258,7 @@ export async function writeConfig(configPath: string, config: SkillManagerConfig
 export async function initConfig(configPath: string, force = false): Promise<LoadedConfig> {
   const absolute = nodePath.resolve(configPath)
   if (!force && await configExists(absolute)) throw new Error(`config already exists: ${absolute}; use --force to replace it`)
-  return writeConfig(absolute, createFixtureConfig())
+  return writeConfig(absolute, runtimeHost() === "macos" ? createEmptyConfig("macos") : createFixtureConfig())
 }
 
 export function configForWrite(config: LoadedConfig): SkillManagerConfig {

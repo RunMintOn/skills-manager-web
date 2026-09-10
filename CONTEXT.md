@@ -1,8 +1,18 @@
 # Skill Manager Web — CONTEXT
 
-个人本地工具：管理只读 Skill Vault、多个 Agent 路径和通用文件系统链接。界面为 localhost Web，Node 服务在 WSL 内运行，Windows 浏览器访问。使用者：本人与 AI Agent。
+个人本地工具：管理只读 Skill Vault、多个 Agent 路径和通用文件系统链接。当前适配目标是 macOS 本地运行，界面为 localhost Web。使用者：本人与 AI Agent。
 
-## 已确认决策（用户确认）
+## 当前适配约束
+
+- Mac 工作区只管理当前 Mac 的本地 Vault、Agent 和链接。
+- Mac 工作区保留技能管理和通用链接。镜像同步、远程管理和跨环境操作不在范围内。
+- 旧 WSL/Windows 工作区代码保留，但不在 Mac 工作区暴露入口。
+- 首次运行使用空配置。用户填写 Mac 路径后才扫描真实目录。
+- Mac 验收只运行 Mac 本地测试。Windows 测试单独保留。
+
+## 原始工作区决策（历史）
+
+以下决策属于旧 WSL/Windows 工作区。当前 Mac 工作区以“当前适配约束”和 Mac 术语定义为准。
 
 - **技术栈**：React + Vite + TypeScript。样式 Tailwind CSS，组件以 shadcn/ui 风格自建轻量集。
 - **形态**：localhost Web 应用，不打包、无桌面壳。Node 服务在 WSL 内监听 127.0.0.1:8787。
@@ -54,6 +64,20 @@
 **链接概念**：Link Target（已存在的文件或目录）、Link Path（新链接条目，不得已存在）、HostKind（wsl / windows，显式，不做字符串猜测）。通用链接由用户输入任意目标路径和链接路径。用户确认后由软件执行真实链接操作。
 
 **同步概念**：Skill 同步不是复制内容。它是在选定 Agent Path 下，为缺失 Skill 创建扁平链接。Vault 保持只读。冲突条目不覆盖。
+
+**当前 Mac 版本**：运行在当前 macOS，只管理同一台 Mac 上的 Vault、Agent 和链接。远程 WSL/Windows 管理不属于当前范围。
+
+**跨环境操作**：目标和链接分属不同操作系统环境的操作。当前 Mac 版本不提供此能力。
+
+**Mac 工作区**：当前 macOS 上可见、可操作的本地 Skill 管理界面。它只处理当前 Mac 的 Vault、Agent 和文件系统链接。
+
+**旧工作区**：原 WSL/Windows 工作流的代码和界面。它保留在同一代码库中，但不在 Mac 工作区中暴露入口。
+
+**本地能力**：Vault 扫描、Agent 对比、Skill 预览与同步、通用链接扫描、Mac 本地链接创建和删除，以及 CLI。它们都只操作当前 Mac 的文件系统。
+
+**Mac 导航**：Mac 工作区保留技能管理和通用链接入口。镜像同步入口隐藏，因为它属于跨环境操作。
+
+**首次配置**：Mac 工作区首次运行使用空配置。用户明确填写 Mac Vault 和 Agent 路径后，应用才扫描真实目录。
 
 ## 资产地图
 

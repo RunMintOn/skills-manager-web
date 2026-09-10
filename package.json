@@ -8,6 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:macos": "vitest run src/core/macos.test.ts src/core/macos-links.test.ts src/server/macos.test.ts",
+    "test:legacy": "vitest run src/core/core.test.ts",
     "server": "bash scripts/run-server.sh",
     "start": "npm run build && bash scripts/run-server.sh",
     "cli": "node src/server/cli.ts"

@@ -1,14 +1,17 @@
 # Skill Vault Manager
 
-WSL 内运行、Windows 浏览器访问的 localhost Skill 和通用链接管理器。Node 服务默认监听 `127.0.0.1:8787`。Vault 始终只读；链接创建和删除在用户明确确认后由软件真实执行。
+localhost Skill 和通用链接管理器。Node 服务默认监听 `127.0.0.1:8787`。Vault 始终只读；链接创建和删除在用户明确确认后由软件真实执行。macOS 工作区只管理当前 Mac 的本地路径；旧 WSL/Windows 工作区代码保留，但不在 Mac 工作区提供入口。
 
 ## 开发与运行
 
 ```bash
 npm install
 npm run typecheck
-npm test
+npm run test:macos
 npm run build
+
+# 旧 WSL/Windows 测试（需要对应运行环境）
+npm run test:legacy
 
 # 开发 UI（Vite 127.0.0.1:5173；需要同时启动 API）
 npm run server
@@ -24,25 +27,25 @@ npm start
 
 ## 配置
 
-应用配置唯一默认位置是项目内 `data/config.json`，该文件已加入 `.gitignore`。首次访问在该文件不存在时只读使用项目 `fixtures/` 作为演示数据，不会写入文件，也不会隐式读取用户 home。UI 的“配置”保存只写配置 JSON，不创建、删除或修改 Vault/Agent 路径。
+应用配置唯一默认位置是项目内 `data/config.json`，该文件已加入 `.gitignore`。macOS 首次访问在该文件不存在时使用空配置，不加载项目 `fixtures/`，也不扫描用户 home。macOS 发现旧 WSL/Windows 配置时同样显示空配置，用户明确保存 Mac 配置后才覆盖配置文件。UI 的“配置”保存只写配置 JSON，不创建、删除或修改 Vault/Agent 路径。
 
 配置格式：
 
 ```json
 {
   "schemaVersion": 1,
-  "vault": { "path": "/absolute/read-only/vault", "host": "wsl" },
+  "vault": { "path": "/Users/me/Skills/vault", "host": "macos" },
   "agents": [
-    { "id": "pi", "name": "Pi", "host": "wsl", "path": "/absolute/agent/skills" }
+    { "id": "mac-agent", "name": "Mac Agent", "host": "macos", "path": "/Users/me/Agent/skills" }
   ],
   "commonPaths": [
-    { "id": "vault", "name": "Vault", "host": "wsl", "path": "/absolute/read-only/vault" }
+    { "id": "vault", "name": "Vault", "host": "macos", "path": "/Users/me/Skills/vault" }
   ],
-  "selectedAgentId": "pi"
+  "selectedAgentId": "mac-agent"
 }
 ```
 
-`host` 必须显式为 `wsl` 或 `windows`。相对路径只在显式配置文件所在目录解析；API 服务可通过 `SKILLS_MANAGER_CONFIG=/explicit/file.json` 选择配置文件，不使用 home 配置。
+`host` 必须显式为 `wsl`、`windows` 或 `macos`。Mac 的 Vault、Agent 和常用路径必须使用绝对 POSIX 路径。相对路径只在旧工作区的显式配置文件中解析；API 服务可通过 `SKILLS_MANAGER_CONFIG=/explicit/file.json` 选择配置文件，不使用 home 配置。
 
 ## HTTP API
 
@@ -59,7 +62,7 @@ npm start
 - `POST /api/links/delete`：只删除已识别的链接入口，不删除目标内容。
 - `POST /api/links/scan`：扫描目录，支持不跟随链接的递归模式。
 
-通用链接支持 WSL 符号链接、WSL 与 Windows 驱动器路径之间的链接，以及 Windows Junction/符号链接。计划中的 WSL 操作仍使用 argv 数组（`shell: false`）；Windows 操作使用 typed filesystem 参数或编码后的 PowerShell 调用，不拼接可执行 shell 命令。
+`GET /api/init` 还返回 `runtimeHost`。macOS 工作区只显示 Skill 管理和通用链接；镜像请求和旧 Host 请求会被服务拒绝。通用链接支持 macOS 原生符号链接、WSL 符号链接、WSL 与 Windows 驱动器路径之间的链接，以及 Windows Junction/符号链接。计划中的 WSL 操作仍使用 argv 数组（`shell: false`）；Windows 操作使用 typed filesystem 参数或编码后的 PowerShell 调用，不拼接可执行 shell 命令。
 
 ## CLI
 
@@ -74,7 +77,7 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 
 `config init` 只创建传入的配置文件，默认内容指向项目 fixtures；不会创建任何链接。`status` 扫描只读，`plan` 每个 Skill 一项且始终 `not-run`。
 
-## Windows 开始菜单入口
+## Windows 开始菜单入口（旧工作区）
 
 1. 保持项目在 WSL 原生路径 `/home/lee/11MyProjrct/44-skills-manager-web`，并确保 WSL 中已 `npm install`、已 `npm run build`。
 2. 将 `scripts/start.bat` 或 `scripts/start.vbs` 作为快捷方式目标（也可以复制到 Windows 可访问目录）。`.vbs` 会隐藏 WSL 控制台，`.bat` 便于排错。
@@ -88,6 +91,7 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 - 创建链接前会检查目标存在、链接路径不存在、父目录可用，并拒绝覆盖普通文件或目录。
 - 删除链接只接受已识别的符号链接或 Junction，使用不跟随目标的删除操作。
 - Skill 同步只创建缺失的扁平链接，不复制 Vault 内容，不覆盖冲突 Agent 条目。
+- macOS 工作区只执行当前 Mac 上的本地操作，不提供远程 WSL/Windows、跨环境链接或 Vault 镜像同步。
 - 创建和删除必须由页面按钮和确认操作触发；扫描、状态和预览不会修改文件系统。
 
 ## 验证记录
@@ -95,14 +99,17 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 ### 已验证（本工作树）
 
 - `npm run typecheck` 通过。
-- `npm test`（Vitest，fixtures + 系统临时目录）通过：Vault 嵌套 Collection、Loose、重复/无效、Agent 六类、比较、预览计划和真实通用链接创建/扫描/删除。
+- `npm run test:macos` 通过：13 个 Mac 配置、Skill 链接和通用链接测试通过，不调用 Windows 命令。
 - `npm run build` 通过。
+- macOS EGO 浏览器验收通过：空配置、Mac Vault/Agent 配置、Skill 扫描、Skill 预览与链接创建、文件链接预检/创建/扫描/删除。
+- 真实 localhost 服务返回 `runtimeHost: macos` 和空配置状态。
 - `node src/server/cli.ts` 直接运行通过；`config init/status --json/plan --json` 已用 fixtures 配置生成 `artifacts/` 输出。
 - Node API 的 `/api/init`、`/api/vault`、`/api/config`（含 PUT）、`/api/agent/:id`、`/api/plan`、`/api/links/*`、`/api/sync` 已在临时目录或 fixtures 上验证。默认产品端口为 8787。
 - Vite dev 首帧可通过 `curl http://127.0.0.1:5173/` 获取；生产构建由 Node 服务提供静态页面。
 
-### 尚未验证（需用户手动）
+### 旧环境或后续验证
 
+- `npm test` 在 macOS 上仍包含旧 Windows 测试；当前 3 个失败都来自缺少 `powershell.exe`。
 - Windows 原生浏览器经 WSL2 localhost 转发访问的实际网络链路。
 - Windows Host Junction 在当前目标机器上的实际权限和系统策略；WSL 临时目录上的真实符号链接已验证。
 - 不同窗口尺寸下的最终视觉手感。

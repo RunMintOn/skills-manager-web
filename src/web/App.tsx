@@ -36,10 +36,12 @@ function typedOperation(plan: SyncPlan["operations"][number]): string {
 }
 
 function pathStyleHint(hostKind: HostKind): string {
-  return hostKind === "windows"
-    ? "Windows 主机需要 C:\\... 或 \\\\server\\share 形式的路径"
-    : "WSL 主机需要 / 开头的路径（Windows 盘符请写 /mnt/c/...）"
+  if (hostKind === "windows") return "Windows 主机需要 C:\\... 或 \\\\server\\share 形式的路径"
+  if (hostKind === "macos") return "macOS 主机需要 /Users/... 形式的绝对路径"
+  return "WSL 主机需要 / 开头的路径（Windows 盘符请写 /mnt/c/...）"
 }
+
+function posixHostFor(host: HostKind): "wsl" | "macos" { return host === "macos" ? "macos" : "wsl" }
 
 export function App(): ReactElement {
   const [topTab, setTopTab] = useState<TopTab>("skills")
@@ -55,6 +57,7 @@ export function App(): ReactElement {
   })
   const [init, setInit] = useState<InitResponse | null>(null)
   const [config, setConfig] = useState<SkillManagerConfig>(emptyConfig)
+  const isMacWorkspace = init?.runtimeHost === "macos"
   const autoDetectPathHost = config.autoDetectPathHost !== false
   const [vault, setVault] = useState<VaultScan | null>(null)
   const [agent, setAgent] = useState<AgentScan | null>(null)
@@ -178,7 +181,7 @@ export function App(): ReactElement {
     }
   }
   function hostForPath(path: string, fallback: HostKind): HostKind {
-    return autoDetectPathHost ? detectPathHost(path) ?? fallback : fallback
+    return autoDetectPathHost ? detectPathHost(path, posixHostFor(fallback)) ?? fallback : fallback
   }
   function commitAutoDetectPathHost(enabled: boolean): void {
     if (enabled === autoDetectPathHost) return
@@ -344,6 +347,9 @@ export function App(): ReactElement {
   const targetCaption = view === "actual" ? (selectedAgent?.path ?? "") : view === "repository" ? (config.vault.path || "") : (selectedAgent?.path ?? "")
   const statusPill = detail ? (detail.validity === "valid" ? { text: "有效", tone: "good" } : { text: "无效", tone: "bad" }) : { text: "—", tone: "gray" }
   const inspectorKind = actualDetailEntry ? kindLabels[actualDetailEntry.kind] ?? actualDetailEntry.kind : undefined
+  const showLinks = topTab === "links"
+  const showMirror = topTab === "mirror" && !isMacWorkspace
+  const showSkills = !showLinks && !showMirror
 
   return <div className={dark ? "app" : "app light"}>
     <header className="topbar">
@@ -353,24 +359,26 @@ export function App(): ReactElement {
       <nav className="nav" aria-label="主导航">
         <button className={topTab === "skills" ? "active" : ""} onClick={() => setTopTab("skills")}>技能管理</button>
         <button className={topTab === "links" ? "active" : ""} onClick={() => setTopTab("links")}>通用链接</button>
-        <button className={topTab === "mirror" ? "active" : ""} onClick={() => setTopTab("mirror")}>Vault 镜像</button>
+        {!isMacWorkspace && <button className={topTab === "mirror" ? "active" : ""} onClick={() => setTopTab("mirror")}>Vault 镜像</button>}
       </nav>
       <div className="spacer" />
       <button className="icon-button" aria-label="刷新数据" title="重新加载配置与扫描结果" onClick={() => void load()}>⟳</button>
       <button className="icon-button toggle-theme" aria-label={dark ? "切换浅色模式" : "切换深色模式"} aria-pressed={dark} onClick={() => setDark((value) => !value)}>{dark ? "☀" : "☾"}</button>
     </header>
 
-    {topTab === "links" ? <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : topTab === "mirror" ? <MirrorSyncWorkbench config={config} onConfigChange={applyMirrorConfig} onNotice={setNotice} onError={(message) => setError(message || null)} /> : (
+    {showLinks && <LinksWorkbench config={config} onConfigChange={setConfig} onNotice={setNotice} onError={(message) => setError(message || null)} />}
+    {showMirror && <MirrorSyncWorkbench config={config} onConfigChange={applyMirrorConfig} onNotice={setNotice} onError={(message) => setError(message || null)} />}
+    {showSkills && (
       <main className="workspace">
         <aside className="left">
-          <div className="pane-head"><span>Agent 目标</span><div className="head-actions"><button className="head-btn" title="添加 Agent" aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: "wsl", path: "" })}><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg></button></div></div>
+          <div className="pane-head"><span>Agent 目标</span><div className="head-actions"><button className="head-btn" title="添加 Agent" aria-label="添加 Agent" onClick={() => setAgentModal({ id: `agent-${Date.now()}`, name: "", host: isMacWorkspace ? "macos" : "wsl", path: "" })}><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" /></svg></button></div></div>
           <div className="baseline-box">
             <div className="baseline-label"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z" /></svg>Baseline repository</div>
             <div className="repo-field"><svg viewBox="0 0 16 16"><path d="M2.5 4.5h4l1-1h6v9h-11z" /></svg>
-              <input aria-label="Vault 路径" title="直接编辑路径，回车或失焦保存（只写 data/config.json）" value={vaultPathDraft} placeholder="未配置 Vault" onChange={(event) => setVaultPathDraft(event.target.value)} onBlur={(event) => commitVaultPath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { commitVaultPath(event.currentTarget.value); event.currentTarget.blur() } }} />
+              <input aria-label="Vault 路径" title="直接编辑路径，回车或失焦保存（只写 data/config.json）" value={vaultPathDraft} placeholder="未配置 Vault" onChange={(event) => setVaultPathDraft(event.target.value)} onBlur={(event) => commitVaultPath(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur() } }} />
               <button className="repo-copy-btn" aria-label="复制 Vault 路径" title="复制 Vault 路径" onClick={() => void copyPath(config.vault.path)}>⧉</button>
             </div>
-            <div className="repo-options"><label><input type="checkbox" checked={autoDetectPathHost} onChange={(event) => commitAutoDetectPathHost(event.target.checked)} />自动识别路径类型</label><label>Host<select value={config.vault.host} onChange={(event) => commitVaultHost(event.target.value as HostKind)}><option value="wsl">wsl</option><option value="windows">windows</option></select></label></div>
+            <div className="repo-options"><label><input type="checkbox" checked={autoDetectPathHost} onChange={(event) => commitAutoDetectPathHost(event.target.checked)} />自动识别路径类型</label><label>Host{isMacWorkspace ? <span>macos</span> : <select value={config.vault.host} onChange={(event) => commitVaultHost(event.target.value as HostKind)}><option value="wsl">wsl</option><option value="windows">windows</option></select>}</label></div>
           </div>
           <div className="agent-list">
             {loading && <div className="list-empty">正在读取 Agent…</div>}
@@ -419,6 +427,7 @@ export function App(): ReactElement {
             </div>
           </div>
           {error && <div className="banner banner-error" role="alert">⚠ {error} <button onClick={() => void load()}>重试</button><button onClick={() => setError(null)}>×</button></div>}
+          {isMacWorkspace && init && !init.config.exists && <div className="banner banner-notice" role="status">首次运行：请先配置 Mac Vault 和 Agent 路径。应用不会自动扫描 home 目录。</div>}
           {scanStale && <div className="banner banner-notice" role="status">当前 Host 的扫描结果待刷新。点击右上角刷新。<button onClick={() => void load()}>立即刷新</button></div>}
           {notice && <div className="banner banner-notice" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
           <SkillMatrix view={view} actualMode={actualMode} showPaths={showPaths} loading={loading} vault={vault} agent={agent} comparison={comparison} config={config} selectedAgentId={selectedAgentId} filteredSkills={filteredSkills} groups={groups} actualGroups={actualGroups} selectedSkillKey={selectedSkillKey} selectedIds={selectedIds} actualSelectedPath={actualSelectedPath} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} onSelectSkill={(key) => setSelectedSkillKey(key)} onSelectActual={(entry) => { setActualSelectedPath(entry.relativePath); if (entry.skillKey) setSelectedSkillKey(entry.skillKey) }} onToggleSelected={toggleSelected} onToggleCollection={toggleCollection} />
@@ -468,7 +477,7 @@ export function App(): ReactElement {
       </main>
     )}
 
-    {agentModal && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host<select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select></label><label>实际路径<input value={agentModal.path} onChange={(event) => { const path = event.target.value; setAgentModal({ ...agentModal, path, host: hostForPath(path, agentModal.host) }) }} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button className="btn" onClick={() => setAgentModal(null)}>取消</button><button className="btn primary" onClick={() => void saveAgent()}>保存</button></div></div></div>}
+    {agentModal && <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setAgentModal(null) }}><div className="modal"><h3>{config.agents.some((item) => item.id === agentModal.id) ? "编辑 Agent" : "添加 Agent"}</h3><label>ID<input disabled={config.agents.some((item) => item.id === agentModal.id)} value={agentModal.id} onChange={(event) => setAgentModal({ ...agentModal, id: event.target.value })} /></label><label>名称<input autoFocus value={agentModal.name} onChange={(event) => setAgentModal({ ...agentModal, name: event.target.value })} /></label><label>Host{isMacWorkspace ? <span>macos</span> : <select value={agentModal.host} onChange={(event) => setAgentModal({ ...agentModal, host: event.target.value as HostKind })}><option value="wsl">wsl</option><option value="windows">windows</option></select>}</label><label>实际路径<input value={agentModal.path} onChange={(event) => { const path = event.target.value; setAgentModal({ ...agentModal, path, host: hostForPath(path, agentModal.host) }) }} /></label><p className="hint">此操作只写配置，不触碰 Agent 目录。</p><div className="modal-actions"><button className="btn" onClick={() => setAgentModal(null)}>取消</button><button className="btn primary" onClick={() => void saveAgent()}>保存</button></div></div></div>}
     {preview && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="preview-title" onClick={(event) => { if (event.target === event.currentTarget) setPreview(null) }}><div className="modal modal-wide"><h3 id="preview-title">同步预览 · 确认后执行</h3><p className="preview-explainer">选择了 <b>{preview.selectedSkillIds.length}</b> 个 Skill；每项都显示目标、扁平 Link Path、策略和风险。点击确认后，后台会真实创建缺失的链接。</p><div className="preview-list">{preview.operations.map((operation) => <article className="preview-operation" key={operation.id}><div className="preview-operation-head"><b>{operation.skillKey}</b><span className={operationClass(operation.action)}>{operationText(operation.action)}</span></div><div className="preview-grid"><label>target<code>{operation.targetPath ?? "—"}</code></label><label>flattened link path<code>{operation.linkPath ?? "—"}</code></label><label>link strategy<code>{operation.link?.kind ?? "blocked"}</code></label><label>typed operation<code>{typedOperation(operation)}</code></label></div><div className="preview-risk">risk: {operation.risks.join("；") || "none"}</div><div className="preview-execution">execution=<b>{operation.execution}</b></div></article>)}</div><div className="modal-actions"><button ref={previewCloseRef} className="btn" onClick={() => setPreview(null)}>关闭</button><button className="btn primary" disabled={syncExecuting || !preview.operations.some((operation) => operation.action === "create-link")} onClick={() => void executeSync()}>{syncExecuting ? "执行中…" : "确认并执行"}</button></div></div></div>}
   </div>
 }

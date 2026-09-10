@@ -9,7 +9,7 @@ type Props = {
   onNotice: (message: string) => void
   onError: (message: string) => void
 }
-type HostSelectProps = { value: HostKind; onChange: (value: HostKind) => void }
+type HostSelectProps = { value: HostKind; onChange: (value: HostKind) => void; macOnly?: boolean }
 type PathCardProps = {
   title: string
   description: string
@@ -20,6 +20,7 @@ type PathCardProps = {
   onHostChange: (host: HostKind) => void
   onPathChange: (path: string) => void
   onFill: (item: CommonPath) => void
+  macOnly: boolean
 }
 type ScanPanelProps = {
   host: HostKind
@@ -36,6 +37,7 @@ type ScanPanelProps = {
   onSelectEntry: (entry: LinkEntry) => void
   onDelete: () => void
   onDeleteBroken: () => void
+  macOnly: boolean
 }
 type CommonPathsPanelProps = {
   paths: CommonPath[]
@@ -53,22 +55,29 @@ type CommonPathModalProps = {
   draft: CommonPath
   editing: boolean
   autoDetectPathHost: boolean
+  macOnly: boolean
   onChange: (draft: CommonPath) => void
   onClose: () => void
   onSave: () => void
 }
 
 function emptySpecForHost(host: HostKind): LinkSpec { return { targetHost: host, targetPath: "", linkHost: host, linkPath: "" } }
+function posixHostFor(host: HostKind): "wsl" | "macos" { return host === "macos" ? "macos" : "wsl" }
+function pathPlaceholder(host: HostKind, macWorkspace: boolean, wslPath: string, macosPath: string, windowsPath: string): string {
+  if (host === "windows") return windowsPath
+  return macWorkspace ? macosPath : wslPath
+}
 const entryLabels: Record<string, string> = {
   file: "文件",
   directory: "目录",
   "wsl-symlink": "WSL 符号链接",
+  "macos-symlink": "macOS 符号链接",
   "windows-symlink": "Windows 符号链接",
   "windows-junction": "Windows Junction",
   "unsupported-link": "不支持的链接",
   other: "其他",
 }
-const hostLabels: Record<HostKind, string> = { wsl: "WSL / POSIX", windows: "Windows" }
+const hostLabels: Record<HostKind, string> = { wsl: "WSL / POSIX", windows: "Windows", macos: "macOS" }
 
 function displayError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -77,6 +86,7 @@ function displayError(error: unknown): string {
 function strategyLabel(value: string | undefined): string {
   switch (value) {
     case "wsl-symlink": return "WSL 符号链接"
+    case "macos-symlink": return "macOS 符号链接"
     case "wsl-to-windows-symlink": return "WSL → Windows 符号链接"
     case "windows-to-wsl-symlink": return "Windows → WSL 符号链接"
     case "windows-junction": return "Windows Junction"
@@ -103,20 +113,21 @@ function upsertCommonPath(paths: CommonPath[], value: CommonPath): CommonPath[] 
   return paths.map(function (item): CommonPath { return item.id === value.id ? value : item })
 }
 
-function HostSelect({ value, onChange }: HostSelectProps): ReactElement {
-  return <select value={value} onChange={(event) => onChange(event.target.value as HostKind)}><option value="wsl">{hostLabels.wsl}</option><option value="windows">{hostLabels.windows}</option></select>
+function HostSelect({ value, onChange, macOnly = false }: HostSelectProps): ReactElement {
+  if (macOnly) return <select value={value} onChange={(event) => onChange(event.target.value as HostKind)}><option value="macos">{hostLabels.macos}</option></select>
+  return <select value={value} onChange={(event) => onChange(event.target.value as HostKind)}><option value="wsl">{hostLabels.wsl}</option><option value="windows">{hostLabels.windows}</option><option value="macos">{hostLabels.macos}</option></select>
 }
 
-function PathCard({ title, description, host, path, placeholder, commonPaths, onHostChange, onPathChange, onFill }: PathCardProps): ReactElement {
+function PathCard({ title, description, host, path, placeholder, commonPaths, onHostChange, onPathChange, onFill, macOnly }: PathCardProps): ReactElement {
   return <div className="path-card">
     <div className="path-card-title"><b>{title}</b><span>{description}</span></div>
-    <label>主机<HostSelect value={host} onChange={onHostChange} /></label>
+    <label>主机<HostSelect value={host} onChange={onHostChange} macOnly={macOnly} /></label>
     <label>路径<input value={path} placeholder={placeholder} onChange={(event) => onPathChange(event.target.value)} /></label>
     <div className="path-actions"><span className="path-picker-hint">可粘贴路径，或从常用路径填入</span>{commonPaths.map((item) => <button key={item.id} onClick={() => onFill(item)}>{item.name}</button>)}</div>
   </div>
 }
 
-function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, onHostChange, onPathChange, onRecursiveChange, onScan, onSelectEntry, onDelete, onDeleteBroken }: ScanPanelProps): ReactElement {
+function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, onHostChange, onPathChange, onRecursiveChange, onScan, onSelectEntry, onDelete, onDeleteBroken, macOnly }: ScanPanelProps): ReactElement {
   const brokenEntries = entries.filter(isBrokenLink)
   let summary = ""
   if (scan) {
@@ -127,7 +138,7 @@ function ScanPanel({ host, path, recursive, scan, entries, selectedEntry, busy, 
   return <section className="panel link-scan-panel">
     <div className="panel-heading"><span>扫描目录</span><span className="result-count">不跟随链接递归</span></div>
     <div className="scan-form">
-      <label>主机<HostSelect value={host} onChange={onHostChange} /></label>
+      <label>主机<HostSelect value={host} onChange={onHostChange} macOnly={macOnly} /></label>
       <label className="scan-path-label">目录路径<input value={path} placeholder="输入要查看的目录" onChange={(event) => onPathChange(event.target.value)} /></label>
       <label className="checkbox-label"><input type="checkbox" checked={recursive} onChange={(event) => onRecursiveChange(event.target.checked)} />递归</label>
       <button className="secondary-button" disabled={busy || !path.trim()} onClick={onScan}>扫描</button>
@@ -212,13 +223,13 @@ function BatchPreflightPanel({ preflight, busy, onClose, onCreate }: BatchPrefli
   </section>
 }
 
-function CommonPathModal({ draft, editing, autoDetectPathHost, onChange, onClose, onSave }: CommonPathModalProps): ReactElement {
+function CommonPathModal({ draft, editing, autoDetectPathHost, macOnly, onChange, onClose, onSave }: CommonPathModalProps): ReactElement {
   return <div className="modal-backdrop show" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className="modal">
       <h3>{editing ? "编辑常用路径" : "添加常用路径"}</h3>
       <label>名称<input autoFocus value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} /></label>
-      <label>主机<HostSelect value={draft.host} onChange={(host) => onChange({ ...draft, host })} /></label>
-      <label>路径<input value={draft.path} onChange={(event) => { const path = event.target.value; onChange({ ...draft, path, host: autoDetectPathHost ? detectPathHost(path) ?? draft.host : draft.host }) }} /></label>
+      <label>主机<HostSelect value={draft.host} onChange={(host) => onChange({ ...draft, host })} macOnly={macOnly} /></label>
+      <label>路径<input value={draft.path} onChange={(event) => { const path = event.target.value; onChange({ ...draft, path, host: autoDetectPathHost ? detectPathHost(path, posixHostFor(draft.host)) ?? draft.host : draft.host }) }} /></label>
       <p className="hint">常用路径只保存到应用配置，不会创建、删除或修改该路径。</p>
       <div className="modal-actions"><button onClick={onClose}>取消</button><button className="primary-button" onClick={onSave}>保存</button></div>
     </div>
@@ -226,12 +237,13 @@ function CommonPathModal({ draft, editing, autoDetectPathHost, onChange, onClose
 }
 
 export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Props): ReactElement {
+  const macWorkspace = config.vault.host === "macos"
   const [spec, setSpec] = useState<LinkSpec>(() => emptySpecForHost(config.vault.host))
   const [batchMode, setBatchMode] = useState(false)
   const [preflight, setPreflight] = useState<LinkPreflight | null>(null)
   const [batchPreflight, setBatchPreflight] = useState<BatchLinkPreflight | null>(null)
   const [busy, setBusy] = useState(false)
-  const [scanHost, setScanHost] = useState<HostKind>("wsl")
+  const [scanHost, setScanHost] = useState<HostKind>(config.vault.host)
   const [scanPath, setScanPath] = useState("")
   const [recursive, setRecursive] = useState(false)
   const [scan, setScan] = useState<LinkScan | null>(null)
@@ -241,8 +253,12 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
   const scanEntries = scan?.entries ?? []
   const autoDetectPathHost = config.autoDetectPathHost !== false
 
+  useEffect(function syncMacScanHost(): void {
+    if (macWorkspace) setScanHost("macos")
+  }, [macWorkspace])
+
   function hostForPath(path: string, fallback: HostKind): HostKind {
-    return autoDetectPathHost ? detectPathHost(path) ?? fallback : fallback
+    return autoDetectPathHost ? detectPathHost(path, posixHostFor(fallback)) ?? fallback : fallback
   }
   function updateTargetPath(targetPath: string): void { updateSpec({ targetPath, targetHost: hostForPath(targetPath, spec.targetHost) }) }
   function updateLinkPath(linkPath: string): void { updateSpec({ linkPath, linkHost: hostForPath(linkPath, spec.linkHost) }) }
@@ -478,17 +494,17 @@ export function LinksWorkbench({ config, onConfigChange, onNotice, onError }: Pr
         <div className="panel-heading"><span>创建链接</span><span className="result-count">目标与链接路径必须明确</span></div>
         <div className="link-form-content">
           <label className="batch-mode-toggle"><input type="checkbox" checked={batchMode} onChange={(event) => { setBatchMode(event.target.checked); setPreflight(null); setBatchPreflight(null) }} />批量链接源文件夹中的 Skill 子目录</label>
-          <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={spec.targetHost === "wsl" ? "/home/user/source" : "C:\\Users\\user\\source"} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={updateTargetPath} onFill={fillTarget} />
-          <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={spec.linkHost === "wsl" ? "/home/user/links/name" : "C:\\Users\\user\\links\\name"} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={updateLinkPath} onFill={fillLink} />
+          <PathCard title={batchMode ? "Source Folder · 源文件夹" : "Link Target · 目标"} description={batchMode ? "直接子目录中的 Skill" : "已有文件或目录"} host={spec.targetHost} path={spec.targetPath} placeholder={pathPlaceholder(spec.targetHost, macWorkspace, "/home/user/source", "/Users/user/source", "C:\\Users\\user\\source")} commonPaths={commonPaths} onHostChange={(targetHost) => updateSpec({ targetHost })} onPathChange={updateTargetPath} onFill={fillTarget} macOnly={macWorkspace} />
+          <PathCard title={batchMode ? "Destination Folder · 目标文件夹" : "Link Path · 链接"} description={batchMode ? "Skill 直接平铺到这里" : "新链接条目"} host={spec.linkHost} path={spec.linkPath} placeholder={pathPlaceholder(spec.linkHost, macWorkspace, "/home/user/links/name", "/Users/user/links/name", "C:\\Users\\user\\links\\name")} commonPaths={commonPaths} onHostChange={(linkHost) => updateSpec({ linkHost })} onPathChange={updateLinkPath} onFill={fillLink} macOnly={macWorkspace} />
           <div className="link-form-actions"><button className="secondary-button" onClick={() => { setSpec(emptySpecForHost(config.vault.host)); setPreflight(null); setBatchPreflight(null) }}>清空</button><button className="primary-button" disabled={busy || !spec.targetPath || !spec.linkPath} onClick={() => void runPreflight()}>{busy ? "检查中…" : batchMode ? "预检批量链接" : "预检链接"}</button></div>
           <p className="safety-note">{batchMode ? "只读取源文件夹直接子目录中包含 SKILL.md 的目录，并将它们平铺链接到目标文件夹。" : "预检会确认目标存在、链接路径不存在、父目录可用，并阻止覆盖普通文件或目录。"}</p>
         </div>
       </section>
-      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={updateScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} onDeleteBroken={() => void deleteBrokenEntries()} />
-      <CommonPathsPanel paths={commonPaths} onAdd={() => setCommonEditor({ id: `path-${Date.now()}`, name: "", host: "wsl", path: "" })} onFillTarget={fillTarget} onFillLink={fillLink} onScan={prepareScan} onCopy={(item) => void copyPath(item)} onEdit={setCommonEditor} onDelete={(item) => void removeCommonPath(item)} />
+      <ScanPanel host={scanHost} path={scanPath} recursive={recursive} scan={scan} entries={scanEntries} selectedEntry={selectedEntry} busy={busy} onHostChange={setScanHost} onPathChange={updateScanPath} onRecursiveChange={setRecursive} onScan={() => void runScan()} onSelectEntry={setSelectedEntry} onDelete={() => void deleteEntry()} onDeleteBroken={() => void deleteBrokenEntries()} macOnly={macWorkspace} />
+      <CommonPathsPanel paths={commonPaths} onAdd={() => setCommonEditor({ id: `path-${Date.now()}`, name: "", host: config.vault.host, path: "" })} onFillTarget={fillTarget} onFillLink={fillLink} onScan={prepareScan} onCopy={(item) => void copyPath(item)} onEdit={setCommonEditor} onDelete={(item) => void removeCommonPath(item)} />
     </section>
     {preflight && <PreflightPanel preflight={preflight} busy={busy} onClose={() => setPreflight(null)} onCreate={() => void create()} />}
     {batchPreflight && <BatchPreflightPanel preflight={batchPreflight} busy={busy} onClose={() => setBatchPreflight(null)} onCreate={() => void createBatch()} />}
-    {commonEditor && <CommonPathModal draft={commonEditor} editing={commonPaths.some((item) => item.id === commonEditor.id)} autoDetectPathHost={autoDetectPathHost} onChange={setCommonEditor} onClose={() => setCommonEditor(null)} onSave={() => void saveCommonPath()} />}
+    {commonEditor && <CommonPathModal draft={commonEditor} editing={commonPaths.some((item) => item.id === commonEditor.id)} autoDetectPathHost={autoDetectPathHost} macOnly={macWorkspace} onChange={setCommonEditor} onClose={() => setCommonEditor(null)} onSave={() => void saveCommonPath()} />}
   </main>
 }

@@ -99,8 +99,9 @@ async function scanNativeWindowsVault(config: VaultConfig): Promise<VaultScan> {
 /** Read-only recursive Vault scan. It never follows directory symlinks or mutates files. */
 export async function scanVault(config: VaultConfig): Promise<VaultScan> {
   if (config.host === "windows" && process.platform !== "win32") return scanNativeWindowsVault(config)
-  const adapter = getHostPathAdapter(config.host); const root = adapter.normalize(config.path)
+  const adapter = getHostPathAdapter(config.host); const root = config.path.trim() ? adapter.normalize(config.path) : ""
   const result: VaultScan = { path: root, host: config.host, supported: adapter.supportedRuntime, rootExists: false, skills: [], collections: [], duplicateIds: [], issues: [], summary: { total: 0, valid: 0, invalid: 0, collections: 0, duplicateIds: 0, errors: 0, warnings: 0, ignoredDirs: 0, issueCount: 0 } }
+  if (!config.path.trim()) return result
   if (!adapter.supportedRuntime) { result.issues.push({ code: "vault-unreadable", severity: "error", message: `The ${config.host} adapter is unavailable on runtime ${process.platform}; scan not attempted.` }); result.summary.issueCount = 1; return result }
   if (!(await exists(root))) { result.issues.push({ code: "vault-missing", severity: "error", message: `Vault path does not exist: ${root}` }); result.summary.issueCount = 1; return result }
   const stat = await lstat(root).catch(() => undefined); if (!stat?.isDirectory()) { result.issues.push({ code: "vault-unreadable", severity: "error", message: `Vault path is not a directory: ${root}` }); result.summary.issueCount = 1; return result }
