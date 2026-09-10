@@ -27,7 +27,7 @@ npm start
 
 ## 配置
 
-应用配置唯一默认位置是项目内 `data/config.json`，该文件已加入 `.gitignore`。macOS 首次访问在该文件不存在时使用空配置，不加载项目 `fixtures/`，也不扫描用户 home。macOS 发现旧 WSL/Windows 配置时同样显示空配置，用户明确保存 Mac 配置后才覆盖配置文件。UI 的“配置”保存只写配置 JSON，不创建、删除或修改 Vault/Agent 路径。
+应用配置唯一默认位置是项目内 `data/config.json`，该文件已加入 `.gitignore`。macOS 首次访问在该文件不存在时不加载项目 `fixtures/`，显示未配置 Vault，并内置三个 `$HOME` Agent 路径。macOS 发现旧 WSL/Windows 配置时同样使用这三个内置路径，用户明确保存 Mac 配置后才覆盖配置文件。UI 的“配置”保存只写配置 JSON，不创建、删除或修改 Vault/Agent 路径。
 
 配置格式：
 
@@ -45,7 +45,7 @@ npm start
 }
 ```
 
-`host` 必须显式为 `wsl`、`windows` 或 `macos`。Mac 的 Vault、Agent 和常用路径必须使用绝对 POSIX 路径。相对路径只在旧工作区的显式配置文件中解析；API 服务可通过 `SKILLS_MANAGER_CONFIG=/explicit/file.json` 选择配置文件，不使用 home 配置。
+`host` 必须显式为 `wsl`、`windows` 或 `macos`。Mac 的 Vault 和常用路径必须使用绝对 POSIX 路径。内置 Agent 可以使用 `$HOME/...`；程序运行时会展开它。相对路径只在旧工作区的显式配置文件中解析；API 服务可通过 `SKILLS_MANAGER_CONFIG=/explicit/file.json` 选择配置文件，不使用 home 配置。
 
 ## HTTP API
 
@@ -75,7 +75,7 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
   --agent fixture-agent --skills code-review,unicode-helper
 ```
 
-`config init` 只创建传入的配置文件，默认内容指向项目 fixtures；不会创建任何链接。`status` 扫描只读，`plan` 每个 Skill 一项且始终 `not-run`。
+`config init` 只创建传入的配置文件。旧工作区默认内容指向项目 fixtures；macOS 默认内容使用三个内置 `$HOME` Agent 路径。命令不会创建任何链接。`status` 扫描只读，`plan` 每个 Skill 一项且始终 `not-run`。
 
 ## Windows 开始菜单入口（旧工作区）
 
@@ -99,10 +99,10 @@ node src/server/cli.ts plan --json --config /tmp/skills-manager-fixture.json \
 ### 已验证（本工作树）
 
 - `npm run typecheck` 通过。
-- `npm run test:macos` 通过：13 个 Mac 配置、Skill 链接和通用链接测试通过，不调用 Windows 命令。
+- `npm run test:macos` 通过：14 个 Mac 配置、Skill 链接和通用链接测试通过，不调用 Windows 命令。
 - `npm run build` 通过。
-- macOS EGO 浏览器验收通过：空配置、Mac Vault/Agent 配置、Skill 扫描、Skill 预览与链接创建、文件链接预检/创建/扫描/删除。
-- 真实 localhost 服务返回 `runtimeHost: macos` 和空配置状态。
+- macOS EGO 浏览器验收通过：未配置 Vault、三个内置 Agent 路径、Mac Vault/Agent 配置、Skill 扫描、Skill 预览与链接创建、文件链接预检/创建/扫描/删除。
+- 真实 localhost 服务返回 `runtimeHost: macos`、未配置 Vault 和三个 `$HOME` Agent 路径。
 - `node src/server/cli.ts` 直接运行通过；`config init/status --json/plan --json` 已用 fixtures 配置生成 `artifacts/` 输出。
 - Node API 的 `/api/init`、`/api/vault`、`/api/config`（含 PUT）、`/api/agent/:id`、`/api/plan`、`/api/links/*`、`/api/sync` 已在临时目录或 fixtures 上验证。默认产品端口为 8787。
 - Vite dev 首帧可通过 `curl http://127.0.0.1:5173/` 获取；生产构建由 Node 服务提供静态页面。

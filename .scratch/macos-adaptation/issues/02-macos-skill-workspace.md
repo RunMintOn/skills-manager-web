@@ -2,7 +2,7 @@
 
 **What to build:** 用户可以复用现有 Skill 工作台扫描 Mac Vault，查看 Collection、Skill 和 Agent 对比，搜索和选择 Skill，生成同步预览，并创建本地 Skill 符号链接。
 
-**Blocked by:** 01: Mac 基础运行与空配置
+**Blocked by:** 01: Mac 基础运行与内置 Agent 路径
 
 **Status:** done
 

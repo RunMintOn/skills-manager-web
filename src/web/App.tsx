@@ -427,7 +427,7 @@ export function App(): ReactElement {
             </div>
           </div>
           {error && <div className="banner banner-error" role="alert">⚠ {error} <button onClick={() => void load()}>重试</button><button onClick={() => setError(null)}>×</button></div>}
-          {isMacWorkspace && init && !init.config.exists && <div className="banner banner-notice" role="status">首次运行：请先配置 Mac Vault 和 Agent 路径。应用不会自动扫描 home 目录。</div>}
+          {isMacWorkspace && init && !init.config.exists && <div className="banner banner-notice" role="status">首次运行：已内置 3 个 Mac Agent 技能目录。请先配置 Vault 路径；应用不会扫描未列出的 home 目录。</div>}
           {scanStale && <div className="banner banner-notice" role="status">当前 Host 的扫描结果待刷新。点击右上角刷新。<button onClick={() => void load()}>立即刷新</button></div>}
           {notice && <div className="banner banner-notice" role="status">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
           <SkillMatrix view={view} actualMode={actualMode} showPaths={showPaths} loading={loading} vault={vault} agent={agent} comparison={comparison} config={config} selectedAgentId={selectedAgentId} filteredSkills={filteredSkills} groups={groups} actualGroups={actualGroups} selectedSkillKey={selectedSkillKey} selectedIds={selectedIds} actualSelectedPath={actualSelectedPath} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} onSelectSkill={(key) => setSelectedSkillKey(key)} onSelectActual={(entry) => { setActualSelectedPath(entry.relativePath); if (entry.skillKey) setSelectedSkillKey(entry.skillKey) }} onToggleSelected={toggleSelected} onToggleCollection={toggleCollection} />

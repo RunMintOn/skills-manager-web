@@ -1,12 +1,15 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import nodePath from "node:path"
 import {
   createEmptyConfig,
+  createMacosDefaultConfig,
+  configForWrite,
   detectPathHost,
   getHostPathAdapter,
   isAbsolutePathForHost,
   readConfigOrFixture,
+  resolveConfig,
   scanVault,
   validateConfig,
 } from "./index.ts"
@@ -39,15 +42,42 @@ describe("macOS runtime configuration", () => {
       vault: { path: "/Users/lee/Vault", host: "macos" },
       agents: [{ id: "agent", name: "Agent", path: "/Users/lee/Agent", host: "macos" }],
     })).toMatchObject({ vault: { host: "macos" }, agents: [{ host: "macos" }] })
+
+    expect(validateConfig({
+      schemaVersion: 1,
+      vault: { path: "/Users/lee/Vault", host: "macos" },
+      agents: [{ id: "codex", name: "Codex", path: "$HOME/.codex/skills", host: "macos" }],
+    })).toMatchObject({ agents: [{ path: "$HOME/.codex/skills" }] })
   })
 
-  it("returns empty macOS state when no config exists", async () => {
+  it("provides portable built-in Mac Agent paths", () => {
+    const config = createMacosDefaultConfig()
+    expect(config.agents.map((agent) => agent.path)).toEqual([
+      "$HOME/.codex/skills",
+      "$HOME/.pi/agent/skills",
+      "$HOME/.agents/skills",
+    ])
+
+    const loaded = resolveConfig(config, "/tmp/config.json", false)
+    expect(loaded.agents.map((agent) => agent.path)).toEqual([
+      nodePath.join(homedir(), ".codex/skills"),
+      nodePath.join(homedir(), ".pi/agent/skills"),
+      nodePath.join(homedir(), ".agents/skills"),
+    ])
+    expect(configForWrite(loaded).agents.map((agent) => agent.path)).toEqual(config.agents.map((agent) => agent.path))
+  })
+
+  it("returns Mac defaults without loading fixtures when no config exists", async () => {
     const root = await mkdtemp(nodePath.join(tmpdir(), "skills-manager-macos-config-"))
     try {
       const loaded = await readConfigOrFixture(nodePath.join(root, "config.json"), "macos")
       expect(loaded.exists).toBe(false)
       expect(loaded.vault).toEqual({ path: "", host: "macos" })
-      expect(loaded.agents).toEqual([])
+      expect(loaded.agents.map((agent) => agent.path)).toEqual([
+        nodePath.join(homedir(), ".codex/skills"),
+        nodePath.join(homedir(), ".pi/agent/skills"),
+        nodePath.join(homedir(), ".agents/skills"),
+      ])
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -65,7 +95,7 @@ describe("macOS runtime configuration", () => {
       const loaded = await readConfigOrFixture(configPath, "macos")
       expect(loaded.exists).toBe(false)
       expect(loaded.vault).toEqual({ path: "", host: "macos" })
-      expect(loaded.agents).toEqual([])
+      expect(loaded.agents).toHaveLength(3)
     } finally {
       await rm(root, { recursive: true, force: true })
     }

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { constants } from "node:fs"
 import { access, lstat, readlink, readdir, realpath, rename, rm, stat, symlink, unlink } from "node:fs/promises"
 import nodePath from "node:path"
-import { appendSafeChild, getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
+import { appendSafeChild, expandHomePath, getHostPathAdapter, isInside, windowsPathToWsl, wslPathToWindows, type HostPathAdapter } from "./host.ts"
 import { assertSafeMacosPath, assertSafeWindowsPath, assertSafeWslPath } from "./link-plan.ts"
 import { scanWindowsDirectory } from "./windows-scan.ts"
 import type {
@@ -37,14 +37,15 @@ function adapterFor(host: HostKind): HostPathAdapter {
 }
 
 function normalizePath(host: HostKind, value: string): string {
+  const path = expandHomePath(value)
   if (host === "wsl") {
-    assertSafeWslPath(value, "path")
+    assertSafeWslPath(path, "path")
   } else if (host === "macos") {
-    assertSafeMacosPath(value, "path")
+    assertSafeMacosPath(path, "path")
   } else {
-    assertSafeWindowsPath(value, "path")
+    assertSafeWindowsPath(path, "path")
   }
-  return adapterFor(host).normalize(value)
+  return adapterFor(host).normalize(path)
 }
 
 function runtimePath(host: HostKind, value: string): string {

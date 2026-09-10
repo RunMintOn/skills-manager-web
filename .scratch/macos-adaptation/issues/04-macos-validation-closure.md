@@ -11,7 +11,7 @@
 - [x] 自动化测试只使用 fixtures 或系统临时目录。
 - [x] `npm run typecheck` 通过。
 - [x] `npm run build` 通过。
-- [x] Localhost 服务可以启动并返回 Mac 工作区的空配置状态。
+- [x] Localhost 服务可以启动并返回 Mac 工作区的未配置 Vault 和三个内置 Agent 路径。
 - [x] 临时目录完成一次 Skill 链接和通用链接的创建、扫描、删除流程。
 - [x] README 说明 Mac 启动、配置和当前不支持的能力。
 

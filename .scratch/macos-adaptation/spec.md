@@ -10,7 +10,7 @@
 
 Mac 工作区使用独立的 `macos` Host。Vault、Agent、链接目标和链接路径都必须属于当前 Mac。现有 React 页面、工作台、领域核心和 API 尽量复用，只隔离必要的 Host 适配和 Mac 入口。
 
-首次运行显示空配置。用户填写 Mac Vault 和 Agent 路径后，应用才扫描真实目录。启动方式保持 `npm start` 和 `localhost:8787`。
+首次运行不加载旧配置和 fixtures。应用预置三个可移植的 Mac Agent 路径：`$HOME/.codex/skills`、`$HOME/.pi/agent/skills`、`$HOME/.agents/skills`。Vault 仍保持未配置，用户填写 Vault 路径后才扫描 Vault。启动方式保持 `npm start` 和 `localhost:8787`。
 
 实现保持直接：当前只增加一个运行时 Host 判断和 Mac 配置分支。不引入通用 Workspace Profile、通用 capabilities 系统或第二套 Mac 配置结构。
 
@@ -20,7 +20,7 @@ Mac 工作区使用独立的 `macos` Host。Vault、Agent、链接目标和链�
 2. As a Mac user, I want the application to enter the Mac workspace automatically, so that I do not need to choose an incompatible legacy environment.
 3. As a Mac user, I want to see only Skill management and generic links, so that cross-environment controls do not distract me.
 4. As a Mac user, I want the legacy WSL/Windows workspace to have no Mac entry point, so that I cannot trigger an unsupported operation.
-5. As a first-time user, I want to see an empty configuration state, so that old machine paths and demo data are not treated as my real workspace.
+5. As a first-time user, I want to see an unconfigured Vault with built-in Agent paths, so that old machine paths and demo data are not treated as my real workspace.
 6. As a Mac user, I want to configure one local read-only Vault path, so that the application has a clear source of truth.
 7. As a Mac user, I want to configure multiple local Agent paths, so that I can compare the same Vault with different consumers.
 8. As a Mac user, I want the application to validate that configured paths use the macOS path format, so that invalid paths fail before scanning.
@@ -45,30 +45,31 @@ Mac 工作区使用独立的 `macos` Host。Vault、Agent、链接目标和链�
 - Use one application and one shared domain seam. Existing React workbenches and domain operations remain shared.
 - Add `macos` as an explicit Host. Use a small `runtimeHost()` helper to select `macos` on macOS and preserve the existing legacy runtime behavior elsewhere.
 - Do not add a general Workspace Profile, capabilities registry, or a second Mac configuration schema. The API exposes the selected `runtimeHost`; the UI uses that value to hide Mac-incompatible controls.
-- On macOS, a missing config or an existing config whose Vault Host is `wsl`/`windows` is treated as an empty setup state. The old file is not imported or rewritten until the user explicitly saves a Mac config.
+- On macOS, a missing config or an existing config whose Vault Host is `wsl`/`windows` is treated as an unconfigured Vault with the three built-in Agent paths. The old file is not imported or rewritten until the user explicitly saves a Mac config.
+- Built-in Agent paths are stored as `$HOME/...` expressions and expanded only at runtime. Saving the configuration keeps these expressions instead of persisting the current user's absolute home path.
 - Mac Vault, Agent, and common paths must be absolute POSIX paths. POSIX path detection receives the current Host because path syntax alone cannot distinguish WSL from macOS.
 - Treat unsupported Hosts and cross-environment requests as blocked. The Mac UI omits those controls, and the service rejects such requests if they are sent directly.
 - Use native macOS filesystem operations for local symbolic links. Do not add a shell command layer for Mac links.
 - Keep the Mac navigation limited to Skill management and generic links. Keep mirror synchronization and its controls out of the Mac workspace. The existing mirror implementation remains legacy-only.
-- Use an empty first-run setup state. Do not import the old ignored configuration and do not scan the home directory automatically. Fixtures remain test data only.
+- Use an unconfigured first-run Vault. Do not import the old ignored configuration or fixtures. Scan only the three explicit built-in Agent paths; do not scan the rest of the home directory.
 - Preserve the existing API shapes where they already describe the behavior. Add only the Host and setup-state data needed by the Mac workspace.
 - Keep the existing localhost service model and port. Do not add a desktop shell, LaunchAgent, installer, or automatic startup in this slice.
 - Keep the old WSL/Windows code in the Mac branch. Do not rewrite or duplicate the old frontend.
 
 ## Testing Decisions
 
-- Test observable behavior at the shared domain seam: Mac path validation, empty setup loading, legacy config isolation, API workspace state, Vault scanning, Agent classification, comparison, sync planning, link preflight, link creation, link scanning, and safe deletion.
+- Test observable behavior at the shared domain seam: Mac path validation, built-in Agent loading, portable `$HOME` paths, legacy config isolation, API workspace state, Vault scanning, Agent classification, comparison, sync planning, link preflight, link creation, link scanning, and safe deletion.
 - Use temporary directories and project fixtures. Do not touch a user's real Mac Vault, Agent path, or links in automated tests.
 - Verify the HTTP API through the same local service boundary used by the UI.
-- Verify the Mac workspace renders only the supported navigation and shows empty setup state before configuration.
+- Verify the Mac workspace renders only the supported navigation and shows an unconfigured Vault with built-in Agent paths before configuration.
 - Run Mac tests without invoking `powershell.exe`, `wsl.exe`, Junction logic, or mirror synchronization.
 - Keep Windows-specific tests in a separate command or environment. Their failure must not make the Mac test command red.
 - Use `npm run test:macos` for the Mac test suite. Keep the existing legacy test command and Windows coverage available separately.
-- Ticket 01 acceptance requires `typecheck`, production build, Mac tests, local service startup, and the empty setup state. The temporary local-link workflow belongs to Ticket 04 after Tickets 02 and 03.
+- Ticket 01 acceptance requires `typecheck`, production build, Mac tests, local service startup, built-in Agent paths, and an unconfigured Vault. The temporary local-link workflow belongs to Ticket 04 after Tickets 02 and 03.
 
 ## Delivery Slices
 
-- Ticket 01: runtime Host, empty setup, Mac navigation, config save, and independent Mac test command.
+- Ticket 01: runtime Host, built-in Agent paths, Mac navigation, config save, and independent Mac test command.
 - Ticket 02: shared Skill workspace on the Mac Host, including scan, compare, preview, and Skill links.
 - Ticket 03: native Mac generic file and directory links.
 - Ticket 04: final validation, documentation, and temporary-directory end-to-end workflows.

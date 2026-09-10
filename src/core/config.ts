@@ -3,11 +3,16 @@ import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import nodePath from "node:path"
 import { fileURLToPath } from "node:url"
 import { isAbsolutePathForHost } from "./path-host.ts"
-import { runtimeHost } from "./host.ts"
+import { expandHomePath, runtimeHost } from "./host.ts"
 import type { AgentConfig, CommonPath, HostKind, LinkRecord, LoadedConfig, MirrorSyncConfig, SkillManagerConfig } from "./types.ts"
 
 export const PROJECT_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "../..")
 export const DEFAULT_CONFIG_PATH = nodePath.join(PROJECT_ROOT, "data", "config.json")
+export const MACOS_BUILTIN_AGENTS: readonly AgentConfig[] = [
+  { id: "codex-skills", name: "Codex Skills", host: "macos", path: "$HOME/.codex/skills" },
+  { id: "pi-agent-skills", name: "Pi Agent Skills", host: "macos", path: "$HOME/.pi/agent/skills" },
+  { id: "agents-skills", name: "Agents Skills", host: "macos", path: "$HOME/.agents/skills" },
+]
 
 export function fixturePath(name: string): string {
   return nodePath.join(PROJECT_ROOT, "fixtures", name)
@@ -29,6 +34,13 @@ export function createEmptyConfig(host: HostKind = runtimeHost()): SkillManagerC
   return { schemaVersion: 1, autoDetectPathHost: true, vault: { path: "", host }, agents: [] }
 }
 
+export function createMacosDefaultConfig(): SkillManagerConfig {
+  return {
+    ...createEmptyConfig("macos"),
+    agents: MACOS_BUILTIN_AGENTS.map(function (agent): AgentConfig { return { ...agent } }),
+  }
+}
+
 function nonEmpty(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim() || value.includes("\0")) {
     throw new Error(`${label} must be a non-empty string without NUL`)
@@ -45,11 +57,17 @@ function validateHostPath(value: string, hostKind: HostKind, label: string): voi
   }
 }
 
+function isBuiltinMacAgent(agent: AgentConfig): boolean {
+  return MACOS_BUILTIN_AGENTS.some(function (item): boolean {
+    return item.id === agent.id && item.name === agent.name && (item.path === agent.path || expandHomePath(item.path) === agent.path)
+  })
+}
+
 function isEmptySetup(value: Partial<SkillManagerConfig>, vaultPath: string): boolean {
   return Boolean(
     typeof value.vault?.path === "string" &&
     vaultPath === "" &&
-    value.agents?.length === 0 &&
+    value.agents?.every(isBuiltinMacAgent) &&
     (!value.commonPaths || value.commonPaths.length === 0) &&
     (!value.links || value.links.length === 0) &&
     value.mirrorSync === undefined &&
@@ -193,8 +211,16 @@ export function validateConfig(input: unknown): SkillManagerConfig {
 }
 
 function resolvePath(value: string, hostKind: HostKind, directory: string): string {
-  if (!value.trim()) return ""
-  return isAbsolutePathForHost(hostKind, value) ? value : nodePath.resolve(directory, value)
+  const expanded = expandHomePath(value)
+  if (!expanded) return ""
+  return isAbsolutePathForHost(hostKind, expanded) ? expanded : nodePath.resolve(directory, expanded)
+}
+
+function portableAgentPath(agent: AgentConfig): string {
+  const builtin = MACOS_BUILTIN_AGENTS.find(function (item): boolean {
+    return item.id === agent.id && item.name === agent.name && expandHomePath(item.path) === agent.path
+  })
+  return builtin?.path ?? agent.path
 }
 
 export function resolveConfig(input: SkillManagerConfig, configPath: string, exists = true): LoadedConfig {
@@ -238,11 +264,11 @@ export async function readConfigOrFixture(configPath = DEFAULT_CONFIG_PATH, expe
   if (await configExists(configPath)) {
     if (expectedHost === "macos") {
       const raw = JSON.parse(await readFile(nodePath.resolve(configPath), "utf8")) as unknown
-      if (configuredVaultHost(raw) !== "macos") return resolveConfig(createEmptyConfig("macos"), configPath, false)
+      if (configuredVaultHost(raw) !== "macos") return resolveConfig(createMacosDefaultConfig(), configPath, false)
     }
     return readConfig(configPath)
   }
-  return resolveConfig(expectedHost === "macos" ? createEmptyConfig("macos") : createFixtureConfig(), configPath, false)
+  return resolveConfig(expectedHost === "macos" ? createMacosDefaultConfig() : createFixtureConfig(), configPath, false)
 }
 
 export async function writeConfig(configPath: string, config: SkillManagerConfig): Promise<LoadedConfig> {
@@ -250,7 +276,8 @@ export async function writeConfig(configPath: string, config: SkillManagerConfig
   const validated = validateConfig(config)
   await mkdir(nodePath.dirname(absolute), { recursive: true })
   const temp = `${absolute}.tmp-${process.pid}`
-  await writeFile(temp, `${JSON.stringify(validated, null, 2)}\n`, "utf8")
+  const persisted = configForWrite({ ...validated, configPath: absolute, exists: true })
+  await writeFile(temp, `${JSON.stringify(persisted, null, 2)}\n`, "utf8")
   await rename(temp, absolute)
   return resolveConfig(validated, absolute, true)
 }
@@ -258,7 +285,7 @@ export async function writeConfig(configPath: string, config: SkillManagerConfig
 export async function initConfig(configPath: string, force = false): Promise<LoadedConfig> {
   const absolute = nodePath.resolve(configPath)
   if (!force && await configExists(absolute)) throw new Error(`config already exists: ${absolute}; use --force to replace it`)
-  return writeConfig(absolute, runtimeHost() === "macos" ? createEmptyConfig("macos") : createFixtureConfig())
+  return writeConfig(absolute, runtimeHost() === "macos" ? createMacosDefaultConfig() : createFixtureConfig())
 }
 
 export function configForWrite(config: LoadedConfig): SkillManagerConfig {
@@ -266,7 +293,7 @@ export function configForWrite(config: LoadedConfig): SkillManagerConfig {
     schemaVersion: 1,
     ...(config.autoDetectPathHost !== undefined ? { autoDetectPathHost: config.autoDetectPathHost } : {}),
     vault: { ...config.vault },
-    agents: config.agents.map(function (agent): AgentConfig { return { ...agent } }),
+    agents: config.agents.map(function (agent): AgentConfig { return { ...agent, path: portableAgentPath(agent) } }),
     commonPaths: (config.commonPaths ?? []).map(function (item): CommonPath { return { ...item } }),
     links: (config.links ?? []).map(function (item): LinkRecord { return { ...item } }),
     ...(config.mirrorSync ? { mirrorSync: { ...config.mirrorSync, source: { ...config.mirrorSync.source }, mirror: { ...config.mirrorSync.mirror }, ...(config.mirrorSync.selectedPaths ? { selectedPaths: [...config.mirrorSync.selectedPaths] } : {}), ...(config.mirrorSync.exclude ? { exclude: [...config.mirrorSync.exclude] } : {}) } } : {}),

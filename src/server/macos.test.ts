@@ -37,16 +37,20 @@ describeMac("macOS localhost workspace", () => {
     return { status: response.statusCode ?? 500, body: JSON.parse(text) as Record<string, unknown> }
   }
 
-  it("reports an empty macOS workspace without scanning fixtures", async () => {
+  it("reports a Mac workspace with built-in Agents without scanning fixtures", async () => {
     const response = await request("/api/init")
     expect(response.status).toBe(200)
-    const body = response.body as unknown as { runtimeHost: string; config: { exists: boolean; config: { vault: { path: string; host: string }; agents: unknown[] } }; vault: { path: string; summary: { total: number } }; agents: unknown[]; safety: { sync: string } }
+    const body = response.body as unknown as { runtimeHost: string; config: { exists: boolean; config: { vault: { path: string; host: string }; agents: Array<{ path: string }> } }; vault: { path: string; summary: { total: number } }; agents: unknown[]; safety: { sync: string } }
     expect(body.runtimeHost).toBe("macos")
     expect(body.config.exists).toBe(false)
     expect(body.config.config.vault).toEqual({ path: "", host: "macos" })
-    expect(body.config.config.agents).toEqual([])
+    expect(body.config.config.agents.map((agent) => agent.path)).toEqual([
+      "$HOME/.codex/skills",
+      "$HOME/.pi/agent/skills",
+      "$HOME/.agents/skills",
+    ])
     expect(body.vault).toMatchObject({ path: "", summary: { total: 0 } })
-    expect(body.agents).toEqual([])
+    expect(body.agents).toHaveLength(3)
     expect(body.safety.sync).toBe("disabled")
   })
 

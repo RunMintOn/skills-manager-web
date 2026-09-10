@@ -9,6 +9,8 @@ export function detectPathHost(value: string, posixHost: "wsl" | "macos" = "wsl"
 }
 
 export function isAbsolutePathForHost(host: HostKind, value: string): boolean {
+  const path = value.trim()
+  if (host === "macos" && (path === "$HOME" || path.startsWith("$HOME/"))) return true
   if (host === "windows") return detectPathHost(value) === host
   return detectPathHost(value, host) === host
 }

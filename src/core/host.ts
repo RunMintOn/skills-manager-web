@@ -1,4 +1,5 @@
 import nodePath from "node:path"
+import { homedir } from "node:os"
 import { realpath } from "node:fs/promises"
 import type { HostKind } from "./types.ts"
 
@@ -16,6 +17,15 @@ export interface HostPathAdapter {
 
 const POSIX = nodePath.posix
 const WINDOWS = nodePath.win32
+const HOME_PREFIX = "$HOME"
+
+export function expandHomePath(value: string): string {
+  const path = value.trim()
+  if (path === HOME_PREFIX) return homedir()
+  if (path.startsWith(`${HOME_PREFIX}/`)) return nodePath.join(homedir(), path.slice(HOME_PREFIX.length + 1))
+  return path
+}
+
 export function runtimeHost(platform: NodeJS.Platform = process.platform): HostKind {
   if (platform === "darwin") return "macos"
   if (platform === "win32") return "windows"

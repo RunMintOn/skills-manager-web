@@ -2,7 +2,7 @@
 
 **What to build:** 用户可以扫描 Mac 目录，预检、创建和删除本地文件或目录符号链接。删除操作只删除链接入口，不删除目标。
 
-**Blocked by:** 01: Mac 基础运行与空配置
+**Blocked by:** 01: Mac 基础运行与内置 Agent 路径
 
 **Status:** done
 
