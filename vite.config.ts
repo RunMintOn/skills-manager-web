@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // dev 模式同源化：前端 5173 的 /api 转发给本地 API 服务。
       "/api": {
-        target: `http://127.0.0.1:${process.env.SKILLS_MANAGER_PORT ?? "8787"}`,
+        target: `http://127.0.0.1:${process.env.SKILLS_MANAGER_PORT ?? "8789"}`,
         changeOrigin: true,
       },
     },
