@@ -5,3 +5,4 @@ data/config.json
 data/config.json.tmp*
 *.log
 *.tsbuildinfo
+docs/ui-reference/optimize.html
