@@ -1,5 +1,7 @@
 # Skill Vault Manager
 
+![Skill Vault Manager 工作区：三列布局，左侧 Agent 目标，中间 Vault Skill 列表，右侧选中 Skill 详情](docs/images/workspace.png)
+
 localhost Skill 和通用链接管理器。Node 服务默认监听 `127.0.0.1:8787`。Vault 始终只读；链接创建和删除在用户明确确认后由软件真实执行。macOS 工作区只管理当前 Mac 的本地路径；旧 WSL/Windows 工作区代码保留，但不在 Mac 工作区提供入口。
 
 ## 开发与运行
